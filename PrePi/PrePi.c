@@ -173,6 +173,8 @@ CEntryPoint (
 {
   UINT64  StartTimeStamp;
 
+  PaintScreen (0);
+
   // Initialize the platform specific controllers
   ArmPlatformInitialize (MpId);
 
