@@ -60,6 +60,12 @@
   EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
 
   #
+  # Timer: MCT global comparator 0 -> GIC INTID 89.  Gives the DXE Core a
+  # real tick so timed events (boot timeout, Stall, SetTimer) work.
+  #
+  Exynos441xPkg/Drivers/MctTimerDxe/MctTimerDxe.inf
+
+  #
   # Interrupt controller (GIC-400 at 0x1048/0x10490000).  The MCT timer
   # driver that consumes it comes in milestone 2.
   #

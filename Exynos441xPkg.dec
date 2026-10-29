@@ -43,3 +43,8 @@
 
   # 24 MHz crystal drives the Exynos MCT free-running counter.
   gExynos441xPkgTokenSpaceGuid.PcdMctFrequencyHz|24000000|UINT32|0x0000100C
+
+  # MCT global comparator 0 interrupt.  Linux IRQ_SPI(57) in
+  # arch/arm/mach-exynos/include/mach/irqs-exynos4.h, which is GIC INTID
+  # 89 (S5P_IRQ offsets by 32, and the GIC sees the raw SPI number).
+  gExynos441xPkgTokenSpaceGuid.PcdMctGlobalTimerIrq|89|UINT32|0x0000100D

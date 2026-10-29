@@ -1,0 +1,48 @@
+#
+#  Timer Architecture Protocol driver on the Exynos4 MCT global comparator.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Exynos441xMctTimerDxe
+  FILE_GUID      = 6e6d6d4a-1b4b-4b0e-9b1c-2a441210c001
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = TimerInitialize
+
+[Sources.common]
+  MctTimerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  PcdLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiTimerArchProtocolGuid
+  gHardwareInterruptProtocolGuid
+
+[Guids]
+  gEfiEventExitBootServicesGuid
+
+[FixedPcd]
+  gExynos441xPkgTokenSpaceGuid.PcdMctBaseAddress
+  gExynos441xPkgTokenSpaceGuid.PcdMctFrequencyHz
+  gExynos441xPkgTokenSpaceGuid.PcdMctGlobalTimerIrq
+  gEmbeddedTokenSpaceGuid.PcdTimerPeriod
+
+[Depex]
+  gHardwareInterruptProtocolGuid

@@ -251,10 +251,9 @@
   # UiApp ("Boot Manager Menu") GUID
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
 
-  # No timer architectural protocol yet (MCT TimerDxe is milestone 2), so the
-  # boot timeout must be 0: BDS would otherwise WaitForEvent() on a timer
-  # event that can never fire and hang before the Shell comes up.
-  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|0
+  # BDS waits this many seconds before falling through to the default boot
+  # option.  The MCT timer drives this, so it can no longer be 0.
+  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|5
 
   # Variables live in RAM (no NV storage driver yet)
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable|TRUE
