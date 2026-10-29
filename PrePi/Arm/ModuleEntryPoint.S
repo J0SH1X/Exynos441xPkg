@@ -13,8 +13,6 @@ ASM_FUNC(_ModuleEntryPoint)
   // Do early platform specific actions
   bl    ASM_PFX(ArmPlatformPeiBootAction)
 
-
-
 _SetSVCMode:
   // Enter SVC mode, Disable FIQ and IRQ
   mov     r1, #(CPSR_MODE_SVC | CPSR_IRQ | CPSR_FIQ)

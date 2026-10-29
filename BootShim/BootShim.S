@@ -56,25 +56,28 @@ _Reset:
 	isb
 
 	/*
-	 * PROOF OF EXECUTION: paint whatever framebuffer THE BOOTLOADER
-	 * programmed.  We cannot know its address from the host (the
-	 * recovery kernel's 0x70C6C000 is a different buffer), so read
-	 * it out of the FIMD0 window registers as the BL left them:
+	 * Locate the framebuffer THE BOOTLOADER programmed.  We cannot
+	 * know its address from the host (the recovery kernel's
+	 * 0x70C6C000 is a different buffer), so read it out of the FIMD0
+	 * window registers as the BL left them (offsets from the u-boot
+	 * struct exynos_fb):
 	 *
-	 *   WINCON<n>     0x20 + 4n    bit 0 = window enabled
-	 *   VIDW<n>_ADD0  0xA0 + 16n   buffer start address
-	 *   VIDW<n>_ADD1  0xA4 + 16n   buffer end address (inclusive)
+	 *   WINCON<n>       0x20 + 4n   bit 0 = window enabled
+	 *   vidw00add0b0+n  0xA0 + 8n   buffer start address
+	 *   vidw00add1b0+n  0xD0 + 8n   buffer start + size
 	 *
-	 * Solid magenta, windows 0..4, only ranges inside DRAM.
+	 * The range of the first valid window is kept in r12/r14 and
+	 * handed to the payload in r0/r1 at the jump.
 	 */
+	mov	r12, #0			/* saved fb start (0 = none yet) */
 	ldr	r6, =0x11C00000		/* FIMD0 base */
 	mov	r7, #0			/* window index 0..4 */
-_ClearFbWindow:
+_ScanFbWindow:
 	add	r8, r6, #0x20
 	add	r8, r8, r7, lsl #2	/* WINCON<n> = 0x20 + 4n */
 	ldr	r2, [r8]		/* WINCON<n> */
 	tst	r2, #1			/* ENWIN? */
-	beq	_ClearFbNext
+	beq	_ScanFbNext
 	/* start addr: vidw00add0b0 + 8n (u-boot struct exynos_fb) */
 	add	r3, r6, #0xA0
 	add	r3, r3, r7, lsl #3
@@ -87,26 +90,23 @@ _ClearFbWindow:
 	/* Sanity: start must point into DRAM (0x40000000..0x80000000) */
 	ldr	r4, =0x40000000
 	cmp	r0, r4
-	blo	_ClearFbNext
+	blo	_ScanFbNext
 	cmp	r1, r0
-	bls	_ClearFbNext		/* end <= start: nonsense, skip */
+	bls	_ScanFbNext		/* end <= start: nonsense, skip */
 	ldr	r4, =0x80000000
 	cmp	r0, r4
-	bhs	_ClearFbNext
-	ldr	r2, =0x00FF00FF		/* magenta */
-1:	str	r2, [r0], #4
-	cmp	r0, r1
-	blo	1b
-_ClearFbNext:
+	bhs	_ScanFbNext
+	cmp	r12, #0			/* remember the first valid window */
+	moveq	r12, r0			/* r12 = fb start */
+	moveq	r14, r1			/* r14 = fb end   */
+_ScanFbNext:
 	add	r7, r7, #1
 	cmp	r7, #5
-	blo	_ClearFbWindow
+	blo	_ScanFbWindow
 
-	/*
-	 * Stop the Samsung bootloader's software watchdog so slow phases
+	/* Stop the Samsung bootloader's software watchdog so slow phases
 	 * (DEBUG builds!) cannot trigger a reset.  Exynos4 watchdog @
-	 * 0x10060000: WTCON bit 5 = 0 disables the watchdog.
-	 */
+	 * 0x10060000: WTCON bit 5 = 0 disables the watchdog. */
 	ldr	r1, =0x10060000
 	ldr	r0, [r1]
 	bic	r0, r0, #(1 << 5)
@@ -204,6 +204,11 @@ _CopyLoop:
 	bgt	_CopyLoop
 
 _Entry:
+	/* Pass the framebuffer range to the payload in r0/r1 (PrePi ignores
+	 * r0/r1 and rediscovers the buffer itself; kept for any bare-metal
+	 * payload that wants it). */
+	mov	r0, r12
+	mov	r1, r14
 	ldr	r5, =UEFI_BASE
 	bx	r5
 

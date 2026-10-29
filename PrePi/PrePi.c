@@ -93,6 +93,7 @@ PrePiMain (
 
   // Initialize the Serial Port
   SerialPortInitialize ();
+
   CharCount = AsciiSPrint (
                 Buffer,
                 sizeof (Buffer),
@@ -184,12 +185,10 @@ CEntryPoint (
   // Enable Instruction Caches on all cores.
   ArmEnableInstructionCache ();
 
-  // Park anything that is not the primary core.  A Cortex-A9 MPIDR may have
-  // the RES1 bit (31) set, so mask it off and test the affinity levels
-  // (bits 0-3 CPU, bits 8-11 cluster) instead of comparing the raw value.
-  if ((MpId & 0x0000FFFF) != 0) {
-    ArmCallWFE ();
-  }
+  // NOTE: upstream parks secondary cores here with ArmCallWFE().  The
+  // Samsung bootloader enters the payload on a core that does not pass
+  // the ArmPlatformIsPrimaryCore() test, so parking would stall the only
+  // running CPU.  SMP bring-up comes later.
 
   PrePiMain (UefiMemoryBase, StacksBase, StartTimeStamp);
 
