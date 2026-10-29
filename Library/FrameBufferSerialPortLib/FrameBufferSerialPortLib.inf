@@ -1,0 +1,28 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = FrameBufferSerialPortLib
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = SerialPortLib
+
+[Sources.common]
+  FrameBufferSerialPortLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  ArmLib
+  PcdLib
+  IoLib
+  HobLib
+  CacheMaintenanceLib
+  FrameBufferConfigLib
+
+[Pcd]
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferAddress
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferPixelBpp

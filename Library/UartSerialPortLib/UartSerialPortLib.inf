@@ -1,0 +1,27 @@
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = ExynosUartSerialPortLib
+  FILE_GUID      = 61620091-45ba-4eff-8f58-f7abf228cebf
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = SerialPortLib
+
+[Sources.common]
+  UartSerialPortLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  PcdLib
+  IoLib
+
+[FixedPcd]
+  gExynos441xPkgTokenSpaceGuid.PcdSerialRegisterBase

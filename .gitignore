@@ -1,0 +1,4 @@
+workspace/
+Artifacts/
+BootShim/BootShim.elf
+BootShim/BootShim.bin

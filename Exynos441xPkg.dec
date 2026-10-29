@@ -1,0 +1,45 @@
+#
+#  Exynos441xPkg package declaration.
+#
+#  EDK2 port for the Samsung Exynos4 (4210/4212/4410/4412) family,
+#  starting with the Galaxy Note 1 (GT-N7000).
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001a
+  PACKAGE_NAME                   = Exynos441xPkg
+  PACKAGE_GUID                   = 3f7f1f3a-8f0e-4c2e-9b6a-52d1c0a7e441
+  PACKAGE_VERSION                = 0.1
+
+[Includes.common]
+  Include
+
+[Guids.common]
+  gExynos441xPkgTokenSpaceGuid   = { 0x7f1c441a, 0x5b2e, 0x4d18, { 0xa3, 0xc7, 0x91, 0x6e, 0x42, 0xf0, 0x88, 0x11 } }
+
+[PcdsFixedAtBuild.common]
+  # Framebuffer left programmed by the Samsung bootloader.
+  # Values below are fallbacks: FrameBufferConfigLib discovers the real
+  # geometry by reading the FIMD window registers at runtime.
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferAddress|0x0|UINT32|0x00001000
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth|1280|UINT32|0x00001001
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight|800|UINT32|0x00001002
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferPixelBpp|32|UINT32|0x00001003
+
+  # Exynos4 peripheral bases
+  gExynos441xPkgTokenSpaceGuid.PcdFimdBaseAddress|0x11C00000|UINT32|0x00001004
+  gExynos441xPkgTokenSpaceGuid.PcdSerialRegisterBase|0x13800000|UINT32|0x00001005
+  gExynos441xPkgTokenSpaceGuid.PcdMctBaseAddress|0x10050000|UINT32|0x00001006
+  gExynos441xPkgTokenSpaceGuid.PcdGicDistributorBase|0x10490000|UINT32|0x00001007
+  gExynos441xPkgTokenSpaceGuid.PcdGicCpuInterfaceBase|0x10480000|UINT32|0x00001008
+  gExynos441xPkgTokenSpaceGuid.PcdPmuBaseAddress|0x10020000|UINT32|0x00001009
+  gExynos441xPkgTokenSpaceGuid.PcdWatchdogBaseAddress|0x10060000|UINT32|0x0000100A
+
+  # ATAGS / machine type (for later kernel hand-off).
+  # GT-N7000 (midas-m0) uses MACH_TYPE from the kernel's mach-types table.
+  gExynos441xPkgTokenSpaceGuid.PcdMachType|0|UINT32|0x0000100B
+
+  # 24 MHz crystal drives the Exynos MCT free-running counter.
+  gExynos441xPkgTokenSpaceGuid.PcdMctFrequencyHz|24000000|UINT32|0x0000100C

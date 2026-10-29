@@ -1,0 +1,46 @@
+#
+#  ArmPlatformLib instance for Exynos441xPkg.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION                    = 0x00010019
+  BASE_NAME                      = Exynos441xPkgLib
+  FILE_GUID                      = 3c9f1a7e-2b64-4d18-a3c7-916e42f08811
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = ArmPlatformLib
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  ArmPlatformPkg/ArmPlatformPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  ArmLib
+  HobLib
+  IoLib
+  MemoryAllocationLib
+  SerialPortLib
+  FrameBufferConfigLib
+
+[Sources.common]
+  Exynos441xPkg.c
+  Exynos441xPkgHelper.S
+  Exynos441xPkgMem.c
+
+[FixedPcd]
+  gArmTokenSpaceGuid.PcdArmPrimaryCore
+  gArmTokenSpaceGuid.PcdArmPrimaryCoreMask
+  gArmTokenSpaceGuid.PcdSystemMemoryBase
+  gArmTokenSpaceGuid.PcdSystemMemorySize
+  gArmTokenSpaceGuid.PcdFdBaseAddress
+  gArmTokenSpaceGuid.PcdFdSize
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferAddress
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferPixelBpp

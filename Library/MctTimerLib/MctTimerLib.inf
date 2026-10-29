@@ -1,0 +1,30 @@
+#
+#  TimerLib instance on the Exynos4 MCT free-running counter.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = MctTimerLib
+  FILE_GUID      = 50ea0c8d-7c11-4a2a-9d6e-14f04b1c4412
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = TimerLib
+
+[Sources.common]
+  MctTimerLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  IoLib
+  PcdLib
+
+[FixedPcd]
+  gExynos441xPkgTokenSpaceGuid.PcdMctBaseAddress
+  gExynos441xPkgTokenSpaceGuid.PcdMctFrequencyHz
