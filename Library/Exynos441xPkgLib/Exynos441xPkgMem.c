@@ -2,9 +2,10 @@
   Memory map + resource HOBs for Exynos441xPkg.
 
   Derived from the QSD8250 (HtcLeoPkg) implementation: builds the system
-  memory resource HOB, carves out the bootloader's framebuffer and the
-  firmware device itself (both live inside DRAM and must never be handed
-  out as free memory), and describes the MMU regions used by PrePi.
+  memory resource HOB, carves out the bootloader's framebuffer and the boot
+  log ring (both live inside DRAM and must never be handed out as free
+  memory), and describes the MMU regions used by PrePi.  The firmware
+  device is left to MemoryInitPeiLib, which tags it EfiBootServicesData.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -133,7 +134,11 @@ ArmPlatformGetVirtualMemoryMap (
   // Publish the system memory resource HOB (MemoryPeim skips its own build
   // if a full-coverage SYSTEM_MEMORY HOB already exists), then remove the
   // ranges that must not be handed out as free memory: the bootloader's
-  // framebuffer (we print on it) and the firmware device (we run from it).
+  // framebuffer (we print on it) and the boot log ring.
+  //
+  // Not the firmware device: MemoryInitPeiLib splits it out of this HOB and
+  // allocates it as EfiBootServicesData.  Carving it here as well left that
+  // search empty and tripped its ASSERT (Found).
   //
   {
     EFI_RESOURCE_ATTRIBUTE_TYPE  ResourceAttributes;
@@ -154,11 +159,6 @@ ArmPlatformGetVirtualMemoryMap (
       PcdGet64 (PcdSystemMemorySize)
       );
   }
-
-  CarveReservedRange (
-    (EFI_PHYSICAL_ADDRESS)PcdGet64 (PcdFdBaseAddress),
-    (UINT64)PcdGet32 (PcdFdSize)
-    );
 
   if (HaveFb) {
     CarveReservedRange (FbBase, FbSize);
