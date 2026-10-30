@@ -1,0 +1,38 @@
+#/** @file
+#
+#  Exynos441x fork of ArmPkg's DefaultExceptionHandlerLib.
+#
+#  Same dispatch, different behaviour on screen: wipe the framebuffer, reset
+#  the debug console cursor and dump through DEBUG() only, so an exception
+#  always lands on a clean screen from the top-left and can be photographed.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+#**/
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = DefaultExceptionHandlerLib
+  FILE_GUID                      = 3495519E-3E0A-4288-A37C-8C1A89456F7C
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = DefaultExceptionHandlerLib|DXE_CORE DXE_DRIVER
+
+[Sources.common]
+  DefaultExceptionHandler.c
+  DebugImageInfo.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  UefiLib
+  BaseLib
+  DebugLib
+  PeCoffGetEntryPointLib
+  SerialPortLib
+  UefiBootServicesTableLib
+
+[Guids]
+  gEfiDebugImageInfoTableGuid
