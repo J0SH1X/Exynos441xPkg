@@ -58,6 +58,8 @@
   MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
+  MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
+  MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
 
   #
   # Timer: MCT global comparator 0 -> GIC INTID 89.  Gives the DXE Core a
@@ -66,8 +68,7 @@
   Exynos441xPkg/Drivers/MctTimerDxe/MctTimerDxe.inf
 
   #
-  # Interrupt controller (GIC-400 at 0x1048/0x10490000).  The MCT timer
-  # driver that consumes it comes in milestone 2.
+  # Interrupt controller (GIC-400 at 0x1048/0x10490000).
   #
   ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
 
@@ -81,11 +82,13 @@
   # ConSplitter wires it into ConIn/ConOut, GraphicsConsole draws text.
   #
   Exynos441xPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  Exynos441xPkg/Drivers/LogoDxe/LogoDxe.inf
   MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
   MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
+  MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
 
   #
   # Variables (RAM only for now)
@@ -114,7 +117,7 @@
   }
 
   #
-  # UEFI Shell - milestone 1 ends here, with a prompt on the screen.
+  # UEFI Shell.
   #
   ShellPkg/Application/Shell/Shell.inf {
     <LibraryClasses>

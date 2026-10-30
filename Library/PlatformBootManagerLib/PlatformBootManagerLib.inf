@@ -17,31 +17,24 @@
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   ShellPkg/ShellPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
 
 [LibraryClasses]
   BaseLib
-  BaseMemoryLib
+  BootLogoLib
   DebugLib
   DevicePathLib
+  FrameBufferConfigLib
   MemoryAllocationLib
-  PcdLib
-  PrintLib
   UefiBootManagerLib
   UefiBootServicesTableLib
   UefiLib
 
 [Guids]
   gUefiShellFileGuid
-  gEfiFileInfoGuid
-  gEfiFileSystemInfoGuid
-  gEfiEndOfDxeEventGroupGuid
 
 [Protocols]
-  gEfiDevicePathProtocolGuid
   gEfiLoadedImageProtocolGuid
-  gEfiFirmwareVolume2ProtocolGuid
   gEfiSimpleTextOutProtocolGuid
   gEfiSimpleTextInProtocolGuid
-
-[Pcd]
-  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
+  gEfiGraphicsOutputProtocolGuid

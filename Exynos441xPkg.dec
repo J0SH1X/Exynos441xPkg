@@ -23,9 +23,10 @@
   # Framebuffer left programmed by the Samsung bootloader.
   # Values below are fallbacks: FrameBufferConfigLib discovers the real
   # geometry by reading the FIMD window registers at runtime.
+  # The Note 1 panel is portrait: 800 wide, 1280 tall.
   gExynos441xPkgTokenSpaceGuid.PcdFrameBufferAddress|0x0|UINT32|0x00001000
-  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth|1280|UINT32|0x00001001
-  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight|800|UINT32|0x00001002
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth|800|UINT32|0x00001001
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight|1280|UINT32|0x00001002
   gExynos441xPkgTokenSpaceGuid.PcdFrameBufferPixelBpp|32|UINT32|0x00001003
 
   # Exynos4 peripheral bases

@@ -242,7 +242,7 @@
   gArmTokenSpaceGuid.PcdVFPEnabled|1
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor|L"Exynos441xPkg"
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"milestone1"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"0.1.0"
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareRevision|0x00010000
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdImageProtectionPolicy|0x00000000
@@ -294,10 +294,11 @@
   gExynos441xPkgTokenSpaceGuid.PcdWatchdogBaseAddress|0x10060000
 
   # Fallback framebuffer geometry; the real one is discovered at runtime from
-  # the FIMD window registers the bootloader left programmed.
+  # the FIMD window registers the bootloader left programmed.  Portrait panel:
+  # 800 wide, 1280 tall.
   gExynos441xPkgTokenSpaceGuid.PcdFrameBufferAddress|0x0
-  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth|1280
-  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight|800
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferWidth|800
+  gExynos441xPkgTokenSpaceGuid.PcdFrameBufferHeight|1280
   gExynos441xPkgTokenSpaceGuid.PcdFrameBufferPixelBpp|32
 
   # Machine type for the later kernel hand-off (midas-m0 / GT-N7000)
@@ -305,13 +306,16 @@
 
 [PcdsPatchableInModule.common]
   #
-  # Console geometry (the FIMD/DSIM panel on the Note 1 is 1280x800; the
-  # MdePkg font is 8x19 so the text grid is 160x42).
+  # Console geometry (the FIMD/DSIM panel on the Note 1 is portrait 800x1280;
+  # the MdePkg font is 8x19 so the text grid is 100x67).  These must match
+  # what SimpleFbDxe reports through GOP, i.e. the discovered panel size,
+  # otherwise GraphicsConsole's CheckModeSupported never matches and it falls
+  # back to its 800x600 default.
   #
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|1280
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution|800
-  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution|1280
-  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution|800
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|800
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution|1280
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution|800
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution|1280
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|42
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|160
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupConOutRow|42

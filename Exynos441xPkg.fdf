@@ -102,6 +102,15 @@ APRIORI DXE {
   INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
+
+  #
+  # Arch protocols.  DxeCore refuses to dispatch any driver that has no DEPEX
+  # (GraphicsConsoleDxe, ConSplitterDxe, ...) until all thirteen architectural
+  # protocols exist, so WatchdogTimer and Capsule must be here too.
+  #
+  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
+  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
+
   INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF Exynos441xPkg/Drivers/MctTimerDxe/MctTimerDxe.inf
 
@@ -114,8 +123,15 @@ APRIORI DXE {
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
+  # CommandInit() in the Shell needs a UnicodeCollation2 instance; without one
+  # ShellCommandLibConstructor fails and the Shell ASSERTs at AutoGen.c:891.
+  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
+
   # The bootloader's framebuffer, published as a GOP
   INF Exynos441xPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+
+  # Platform splash, drawn by BootLogoLib from PlatformBm
+  INF Exynos441xPkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
   # Status code + variables

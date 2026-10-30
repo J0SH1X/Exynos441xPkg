@@ -1,19 +1,21 @@
 /** @file
-  Minimal PlatformBootManagerLib for Exynos441xPkg (milestone 1).
+  PlatformBootManagerLib for Exynos441xPkg.
 
-  Sets up text consoles, registers the UEFI Shell as a boot option, then
-  lets BDS boot normally.  Note the boot timeout PCD is 0 until the MCT
-  timer driver lands (milestone 2): without a timer architectural protocol
-  a BDS wait loop would block on a timer event that can never fire.
+  Registers the framebuffer GOP and the text consoles, adds the UEFI Shell
+  from FVMAIN as a boot option, shows the platform splash and then boots the
+  Shell directly.  Diagnostics go through DEBUG() only: ConOut does not
+  exist yet at BeforeConsole time and Print() into it is what killed the
+  Shell before.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Library/BaseMemoryLib.h>
+#include <Library/BaseLib.h>
+#include <Library/BootLogoLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DevicePathLib.h>
+#include <Library/FrameBufferConfigLib.h>
 #include <Library/MemoryAllocationLib.h>
-#include <Library/PcdLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
@@ -21,7 +23,22 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/LoadedImage.h>
 
-#include <Guid/EventGroup.h>
+//
+// Title registered for the Shell boot option.  Also used to find the option
+// again after RefreshAllBootOption() so we can boot it directly instead of
+// trusting BootOrder.
+//
+#define SHELL_APP_TITLE  L"UEFI Shell"
+
+//
+// Implemented in UefiBootManagerLib's BmConsole.c but not exported through
+// UefiBootManagerLib.h.  HtcLeoPkg declares it the same way.
+//
+VOID
+EFIAPI
+EfiBootManagerConnectAllConsoles (
+  VOID
+  );
 
 /**
   Locate all handles carrying ProtocolGuid, pass each to Process.
@@ -103,7 +120,9 @@ AddBootOptionForFile (
   EFI_DEVICE_PATH_PROTOCOL         *DevicePath;
   MEDIA_FW_VOL_FILEPATH_DEVICE_PATH FileNode;
   EFI_BOOT_MANAGER_LOAD_OPTION     NewOption;
-  EFI_HANDLE                       ImageHandle = NULL;
+  EFI_BOOT_MANAGER_LOAD_OPTION     *Options;
+  UINTN                            OptionCount;
+  INT32                            OptionNumber;
 
   // The FV that contains this driver (BdsDxe) also contains the Shell.
   Status = gBS->HandleProtocol (
@@ -122,18 +141,15 @@ AddBootOptionForFile (
     return 0;
   }
 
-  // Only register the option if the file really is there: LoadImage fails
-  // cleanly when the FV file does not exist.
-  Status = gBS->LoadImage (FALSE, NULL, DevicePath, NULL, 0, &ImageHandle);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "%a: %s not present: %r\n", __FUNCTION__, Description,
-            Status));
-    FreePool (DevicePath);
-    return 0;
-  }
-
-  gBS->UnloadImage (ImageHandle);
-
+  //
+  // Register the option once.  Neither OvmfPkg's nor HtcLeoPkg's
+  // PlatformBootManagerLib probes the file with LoadImage() first, and doing
+  // so here just made the option silently disappear: the FV definitely holds
+  // the Shell (its FILE_GUID is in FVMAIN.Fv), so a failing probe means the
+  // probe is wrong, not the file.  What HtcLeoPkg does do is look the option
+  // up first (PlatformRegisterBootOption) so a reboot does not stack a second
+  // "UEFI Shell" entry onto BootOrder; same idea, inlined here.
+  //
   Status = EfiBootManagerInitializeLoadOption (
              &NewOption,
              LoadOptionNumberUnassigned,
@@ -149,14 +165,23 @@ AddBootOptionForFile (
     return 0;
   }
 
+  Options = EfiBootManagerGetLoadOptions (&OptionCount, LoadOptionTypeBoot);
+  OptionNumber = EfiBootManagerFindLoadOption (&NewOption, Options, OptionCount);
+  if (OptionNumber >= 0) {
+    DEBUG ((DEBUG_INFO, "%a: '%s' already registered as option %d\n",
+            __FUNCTION__, Description, (INT32)OptionNumber));
+    EfiBootManagerFreeLoadOptions (Options, OptionCount);
+    EfiBootManagerFreeLoadOption (&NewOption);
+    return (UINTN)OptionNumber;
+  }
+
   Status = EfiBootManagerAddLoadOptionVariable (&NewOption, 0);
   DEBUG ((DEBUG_INFO, "%a: added %s: %r\n", __FUNCTION__, Description, Status));
-  {
-    UINTN OptionNumber = NewOption.OptionNumber;
+  OptionNumber = (INT32)NewOption.OptionNumber;
 
-    EfiBootManagerFreeLoadOption (&NewOption);
-    return EFI_ERROR (Status) ? 0 : OptionNumber;
-  }
+  EfiBootManagerFreeLoadOptions (Options, OptionCount);
+  EfiBootManagerFreeLoadOption (&NewOption);
+  return EFI_ERROR (Status) ? 0 : (UINTN)OptionNumber;
 }
 
 /**
@@ -199,10 +224,73 @@ PlatformBootManagerBeforeConsole (
   )
 {
   //
-  // Nothing to do: SimpleFbDxe publishes the bootloader's framebuffer as a
-  // GOP before BDS runs, and DEBUG() output goes through SerialPortLib
-  // (the framebuffer console) from PrePi onwards.
+  // Blank the panel so the console output starts on a clean screen instead
+  // of scrolling into whatever DXE printed during dispatch.
   //
+  PaintScreen (0);
+
+  //
+  // Register the consoles here, not in AfterConsole.  BdsEntry() calls
+  // EfiBootManagerConnectAllDefaultConsoles() between BeforeConsole and
+  // AfterConsole, and that is what reads the ConOut variable and fills in
+  // gST->ConOut.  Registering later leaves gST->ConOut NULL, which kills
+  // Print() and leaves the Shell with nothing to draw on -- all output seen
+  // before this point is DEBUG going straight to the framebuffer through
+  // SerialPortLib, which never uses gST->ConOut.
+  //
+  // The GOP handle is what gets registered because SimpleFbDxe installs its
+  // device path alongside the protocol; connecting that path is what makes
+  // GraphicsConsoleDxe bind and install SimpleTextOut in the first place.
+  //
+  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, AddOutput);
+  FilterAndProcess (&gEfiSimpleTextInProtocolGuid, AddInput);
+
+  // The Shell has to exist before BDS sorts BootOrder.
+  AddBootOptionForFile (SHELL_APP_TITLE, &gUefiShellFileGuid);
+}
+
+/**
+  Boot the option registered under Description, directly.
+
+  This deliberately does not consult BootOrder.  RefreshAllBootOption()
+  discovers every bootable thing on every filesystem, including
+  EFI\BOOT\BOOTARM.EFI on any FAT volume (an SD card, a USB stick), and
+  those get sorted ahead of the Shell.  Picking the option by description
+  and calling EfiBootManagerBoot() on it sidesteps that ordering entirely.
+
+  @return TRUE if the option was found and EfiBootManagerBoot() returned.
+**/
+STATIC
+BOOLEAN
+BootOptionByDescription (
+  IN CONST CHAR16  *Description
+  )
+{
+  EFI_BOOT_MANAGER_LOAD_OPTION  *Options;
+  UINTN                         Count;
+  UINTN                         Index;
+  BOOLEAN                       Found;
+
+  Options = EfiBootManagerGetLoadOptions (&Count, LoadOptionTypeBoot);
+  if (Options == NULL) {
+    return FALSE;
+  }
+
+  Found = FALSE;
+  for (Index = 0; Index < Count; Index++) {
+    if (StrCmp (Options[Index].Description, Description) == 0) {
+      EfiBootManagerBoot (&Options[Index]);
+      //
+      // If we get here the image loaded, started and gave control back,
+      // which is a different bug from never being found.
+      //
+      Found = TRUE;
+      break;
+    }
+  }
+
+  EfiBootManagerFreeLoadOptions (Options, Count);
+  return Found;
 }
 
 /**
@@ -215,27 +303,71 @@ PlatformBootManagerAfterConsole (
   )
 {
   EFI_STATUS  Status;
-  UINT16      Timeout;
 
-  // Wire up every SimpleTextOutput/TextInput we can find.
-  FilterAndProcess (&gEfiSimpleTextOutProtocolGuid, AddOutput);
-  FilterAndProcess (&gEfiSimpleTextInProtocolGuid, AddInput);
+  //
+  // Bind every driver to every handle.  Nothing connects the GOP handle to
+  // GraphicsConsoleDxe otherwise, so no SimpleTextOut is ever installed and
+  // gST->ConOut stays NULL -- which is what kills the Shell on its first
+  // Print().  This is the step HtcLeoPkg does (PlatformBm.c:411) that we were
+  // missing; consoles were registered in BeforeConsole but never bound.
+  //
+  EfiBootManagerConnectAll ();
 
-  EfiBootManagerConnectAllDefaultConsoles ();
+  //
+  // Consoles were registered in BeforeConsole and BdsEntry() connects the
+  // default ones between the two callbacks; re-connecting repairs anything
+  // ConnectAll() re-bound.  Leo calls these same two (PlatformBm.c:411).
+  //
+  EfiBootManagerConnectAllConsoles ();
 
-  // Make sure the UEFI Shell is a boot option.
-  AddBootOptionForFile (L"UEFI Shell", &gUefiShellFileGuid);
+  //
+  // BmUpdateSystemTableConsole() only accepts a console whose device path
+  // LocateDevicePath() can resolve.  If that fails, gST->ConOut stays NULL and
+  // the Shell dies on its first Print().  Grab any SimpleTextOut directly so
+  // the Shell always has something to draw on.
+  //
+  if (gST->ConOut == NULL) {
+    EFI_STATUS                      S;
+    EFI_HANDLE                      *Handles;
+    UINTN                           NoHandles;
+    EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *TextOut;
+
+    S = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleTextOutProtocolGuid,
+                                 NULL, &NoHandles, &Handles);
+    if (!EFI_ERROR (S) && (NoHandles > 0)) {
+      S = gBS->HandleProtocol (Handles[0], &gEfiSimpleTextOutProtocolGuid,
+                               (VOID **)&TextOut);
+      if (!EFI_ERROR (S)) {
+        gST->ConsoleOutHandle = Handles[0];
+        gST->ConOut            = TextOut;
+      }
+      gBS->FreePool (Handles);
+    }
+  }
+
+  //
+  // Show the splash.  Must come after ConnectAll(): BootLogoEnableLogo()
+  // looks the GOP up on gST->ConsoleOutHandle, and that handle only carries
+  // GOP once ConSplitter has adopted our framebuffer's GOP.
+  //
+  Status = BootLogoEnableLogo ();
+
 
   // Re-enumerate boot options from all file systems / firmware volumes.
   EfiBootManagerRefreshAllBootOption ();
 
-  Timeout = PcdGet16 (PcdPlatformBootTimeOut);
-  DEBUG ((DEBUG_INFO, "%a: boot timeout = %u\n", __FUNCTION__, Timeout));
+  //
+  // Boot the Shell immediately.  Do not hand control back to BDS: whatever
+  // else RefreshAllBootOption() found (BOOTARM.EFI on an SD card, for
+  // instance) would be picked ahead of the Shell by BootOrder.
+  //
+  if (BootOptionByDescription (SHELL_APP_TITLE)) {
+  }
 
   //
   // The platform watchdog would fire after ~30 s of BDS running with no
   // boot attempt; disable it explicitly so a slow DEBUG build cannot reset
-  // the phone mid-boot (MCT TimerDxe comes in milestone 2).
+  // the phone mid-boot.
   //
   Status = gBS->SetWatchdogTimer (0, 0, 0, NULL);
   DEBUG ((DEBUG_INFO, "%a: watchdog disarm: %r\n", __FUNCTION__, Status));
