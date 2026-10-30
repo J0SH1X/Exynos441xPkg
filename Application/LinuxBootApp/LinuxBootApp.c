@@ -1,7 +1,7 @@
 /** @file
   Boot a downstream ARM Linux zImage (Samsung GT-N7000 kernel) from UEFI.
 
-    LinuxBoot.efi [-c "cmdline"] [-a "text"] [\path\zImage]
+    LinuxBoot.efi [-c "cmdline"] [-a "text"] [-i \path\initrd] [\path\zImage]
 
   Searches every FAT file system for the zImage (default \zImage), then
   boots it the way the Samsung bootloader would have: zImage at 0x40008000
@@ -10,7 +10,9 @@
   preserved (ExynosBootParams.h): memory banks, serial, revision and the
   command line, which carries settings the kernel depends on
   (s3cfb.bootloaderfb, lcdtype, sec_log, ...).  -c replaces the command
-  line, -a appends to it.
+  line, -a appends to it.  -i passes an initrd (ATAG_INITRD2) that the
+  kernel unpacks over its built-in initramfs, e.g. the PhilZ resources that
+  Tools/zimage-ramdisk.py pulls out of a dual-ramdisk zImage.
 
   Loosely after HtcLeoPkg's HtcLeoMenuApp Booter.
 
@@ -34,6 +36,8 @@
 #include <ExynosBootParams.h>
 
 #define KERNEL_ADDR        0x40008000U   // zreladdr (mach-exynos/Makefile.boot)
+#define INITRD_ADDR        0x42000000U   // well above the decompressed kernel
+#define INITRD_MAX         0x04000000U
 #define ATAGS_REGION       0x40000000U   // first 32 KiB of DRAM, below the kernel
 #define ATAGS_REGION_SIZE  0x8000U
 #define ATAGS_ADDR         0x40000100U
@@ -185,6 +189,7 @@ BuildAtags (
   IN  UINTN         OutSize,
   IN  CONST CHAR8   *Replace OPTIONAL,
   IN  CONST CHAR8   *Append OPTIONAL,
+  IN  UINTN         InitrdSize,
   OUT CHAR8         *Cmdline,
   OUT UINT32        *MachType
   )
@@ -236,6 +241,16 @@ BuildAtags (
       AsciiStrCatS (Cmdline, CMDLINE_MAX, " ");
     }
     AsciiStrCatS (Cmdline, CMDLINE_MAX, Append);
+  }
+
+  if (InitrdSize != 0) {
+    if ((UINTN)(Ptr - Out + 4) * 4 > OutSize) {
+      return 0;
+    }
+    *Ptr++ = 4;
+    *Ptr++ = ATAG_INITRD2;
+    *Ptr++ = INITRD_ADDR;
+    *Ptr++ = (UINT32)InitrdSize;
   }
 
   //
@@ -324,6 +339,9 @@ LinuxBootMain (
   CONST CHAR16                   *Path;
   CHAR8                          *Replace;
   CHAR8                          *Append;
+  CONST CHAR16                   *InitrdPath;
+  UINT8                          *Initrd;
+  UINTN                          InitrdSize;
   UINT8                          *Image;
   UINTN                          FileSize;
   UINTN                          KernelSize;
@@ -338,8 +356,11 @@ LinuxBootMain (
   EFI_LOADED_IMAGE_PROTOCOL      *Self;
 
   Path    = L"\\zImage";
-  Replace = NULL;
-  Append  = NULL;
+  Replace    = NULL;
+  Append     = NULL;
+  InitrdPath = NULL;
+  Initrd     = NULL;
+  InitrdSize = 0;
 
   if (!EFI_ERROR (gBS->HandleProtocol (ImageHandle, &gEfiShellParametersProtocolGuid,
                                        (VOID **)&Params))) {
@@ -347,6 +368,8 @@ LinuxBootMain (
       if ((StrCmp (Params->Argv[Index], L"-c") == 0) && (Index + 1 < Params->Argc)) {
         Replace = AllocatePool (StrLen (Params->Argv[++Index]) + 1);
         UnicodeStrToAsciiStrS (Params->Argv[Index], Replace, StrLen (Params->Argv[Index]) + 1);
+      } else if ((StrCmp (Params->Argv[Index], L"-i") == 0) && (Index + 1 < Params->Argc)) {
+        InitrdPath = Params->Argv[++Index];
       } else if ((StrCmp (Params->Argv[Index], L"-a") == 0) && (Index + 1 < Params->Argc)) {
         Append = AllocatePool (StrLen (Params->Argv[++Index]) + 1);
         UnicodeStrToAsciiStrS (Params->Argv[Index], Append, StrLen (Params->Argv[Index]) + 1);
@@ -379,12 +402,24 @@ LinuxBootMain (
     return EFI_BAD_BUFFER_SIZE;
   }
 
+  if (InitrdPath != NULL) {
+    Status = LoadFromAnyVolume (InitrdPath, &Initrd, &InitrdSize);
+    if (EFI_ERROR (Status)) {
+      Print (L"LinuxBoot: initrd %s not found on any FAT volume - %r\n", InitrdPath, Status);
+      return Status;
+    }
+    if ((InitrdSize == 0) || (InitrdSize > INITRD_MAX)) {
+      Print (L"LinuxBoot: initrd of %u bytes is not usable\n", InitrdSize);
+      return EFI_BAD_BUFFER_SIZE;
+    }
+  }
+
   Atags   = AllocatePool (ATAGS_MAX);
   Cmdline = AllocatePool (CMDLINE_MAX);
   if ((Atags == NULL) || (Cmdline == NULL)) {
     return EFI_OUT_OF_RESOURCES;
   }
-  AtagsSize = BuildAtags (Atags, ATAGS_MAX, Replace, Append, Cmdline, &MachType);
+  AtagsSize = BuildAtags (Atags, ATAGS_MAX, Replace, Append, InitrdSize, Cmdline, &MachType);
   if (AtagsSize == 0) {
     Print (L"LinuxBoot: ATAG list does not fit\n");
     return EFI_BUFFER_TOO_SMALL;
@@ -393,6 +428,9 @@ LinuxBootMain (
   Print (L"LinuxBoot: kernel %u bytes -> 0x%x, machine type %u, ATAGs %u bytes -> 0x%x\n",
          KernelSize, KERNEL_ADDR, MachType, AtagsSize, ATAGS_ADDR);
   Print (L"LinuxBoot: cmdline \"%a\"\n", Cmdline);
+  if (InitrdSize != 0) {
+    Print (L"LinuxBoot: initrd %u bytes -> 0x%x\n", InitrdSize, INITRD_ADDR);
+  }
 
   //
   // Claim the destinations so nothing else is placed there before we leave;
@@ -409,6 +447,12 @@ LinuxBootMain (
                                      EFI_SIZE_TO_PAGES (KernelSize), &Region))) {
     Print (L"LinuxBoot: note: 0x%x is in use by UEFI\n", KERNEL_ADDR);
   }
+  Region = INITRD_ADDR;
+  if ((InitrdSize != 0) &&
+      EFI_ERROR (gBS->AllocatePages (AllocateAddress, EfiLoaderData,
+                                     EFI_SIZE_TO_PAGES (InitrdSize), &Region))) {
+    Print (L"LinuxBoot: note: 0x%x is in use by UEFI\n", INITRD_ADDR);
+  }
 
   //
   // This app keeps running after the copy: its own image must not be in the
@@ -417,7 +461,8 @@ LinuxBootMain (
   if (!EFI_ERROR (gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid,
                                        (VOID **)&Self)) &&
       (Overlaps ((UINTN)Self->ImageBase, (UINTN)Self->ImageSize, KERNEL_ADDR, KernelSize) ||
-       Overlaps ((UINTN)Self->ImageBase, (UINTN)Self->ImageSize, ATAGS_REGION, ATAGS_REGION_SIZE))) {
+       Overlaps ((UINTN)Self->ImageBase, (UINTN)Self->ImageSize, ATAGS_REGION, ATAGS_REGION_SIZE) ||
+       Overlaps ((UINTN)Self->ImageBase, (UINTN)Self->ImageSize, INITRD_ADDR, InitrdSize))) {
     Print (L"LinuxBoot: this app was loaded at 0x%p, inside the kernel's place\n",
            Self->ImageBase);
     return EFI_ACCESS_DENIED;
@@ -436,6 +481,9 @@ LinuxBootMain (
   // Boot services are gone: no allocation, no console from here on.
   //
   CopyMem ((VOID *)(UINTN)ATAGS_ADDR, Atags, AtagsSize);
+  if (InitrdSize != 0) {
+    CopyMem ((VOID *)(UINTN)INITRD_ADDR, Initrd, InitrdSize);
+  }
   CopyMem ((VOID *)(UINTN)KERNEL_ADDR, Image, KernelSize);
   FlushL2 ();
   LinuxJump (KERNEL_ADDR, MachType, ATAGS_ADDR);
