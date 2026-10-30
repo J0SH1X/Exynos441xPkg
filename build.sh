@@ -86,6 +86,16 @@ make -C BootShim UEFI_BASE=0x41000000 UEFI_SIZE=0x00100000
 
 source "$PWD/../edk2/edksetup.sh"
 
+# CLANGDWARF only defines DEPS_FLAGS for RISCV64.  Without it no ARM object
+# depends on the headers it includes, so changing a shared struct rebuilt
+# only some of a module's files and linked mismatched layouts (UsbFnDxe broke
+# exactly that way).  Same flags GCC5/CLANGPDB use.
+TOOLS_DEF="${CONF_PATH:-$PWD/../edk2/Conf}/tools_def.txt"
+if ! grep -q '^\*_CLANGDWARF_ARM_DEPS_FLAGS' "$TOOLS_DEF"; then
+    echo '*_CLANGDWARF_ARM_DEPS_FLAGS = -MMD -MF $@.deps' >> "$TOOLS_DEF"
+    echo "Added CLANGDWARF ARM DEPS_FLAGS to $TOOLS_DEF"
+fi
+
 # shellcheck disable=SC2086
 build -n "$(($(getconf _NPROCESSORS_ONLN) + 2))" \
       -a ARM -t CLANGDWARF \
@@ -103,6 +113,9 @@ fi
 # as if it were a zImage.
 PAYLOAD="$OUT_DIR/bootpayload.bin"
 cat BootShim/BootShim.bin "$FD" > "$PAYLOAD"
+
+# Downstream Linux booter: copy it next to a zImage on any FAT volume.
+cp "$WORKSPACE/Build/Exynos441x/${TARGET:-DEBUG}_CLANGDWARF/ARM/LinuxBoot.efi" "$OUT_DIR/"
 
 echo
 echo "Build OK"
