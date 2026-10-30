@@ -23,6 +23,8 @@
 
 #include "PrePi.h"
 
+#include <ExynosLogRing.h>
+
 UINT64  mSystemMemoryEnd = FixedPcdGet64 (PcdSystemMemoryBase) +
                            FixedPcdGet64 (PcdSystemMemorySize) - 1;
 
@@ -174,6 +176,11 @@ CEntryPoint (
   UINT64  StartTimeStamp;
 
   PaintScreen (0);
+
+  //
+  // Fresh boot log before the first DEBUG() (UsbLogDxe ships it to a host).
+  //
+  LogRingReset ();
 
   // Initialize the platform specific controllers
   ArmPlatformInitialize (MpId);

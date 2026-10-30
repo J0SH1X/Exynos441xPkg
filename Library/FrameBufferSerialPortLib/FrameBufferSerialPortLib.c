@@ -10,6 +10,7 @@
 
 #include "FrameBufferSerialPortLib.h"
 #include <Library/FrameBufferConfigLib.h>
+#include <ExynosLogRing.h>
 
 FBCON_POSITION m_Position;
 FBCON_POSITION m_MaxPosition;
@@ -378,6 +379,8 @@ SerialPortWrite
 	UINTN  InterruptState = ArmGetInterruptState();
 	ArmDisableInterrupts();
 
+	LogRingAppend (Buffer, NumberOfBytes);
+
 	while (Buffer < Final)
 	{
 		FbConPutCharWithFactor(*Buffer++, FBCON_COMMON_MSG, SCALE_FACTOR);
@@ -400,6 +403,9 @@ SerialPortWriteCritical
 	UINTN  InterruptState = ArmGetInterruptState();
 
 	ArmDisableInterrupts();
+
+	LogRingAppend (Buffer, NumberOfBytes);
+
 	m_Color.Foreground = FB_BGRA8888_YELLOW;
 
 	while (Buffer < Final)

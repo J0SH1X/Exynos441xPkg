@@ -17,6 +17,8 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 
+#include <ExynosLogRing.h>
+
 // The total number of descriptors, including the final "end-of-table" descriptor.
 #define MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS 12
 
@@ -161,6 +163,11 @@ ArmPlatformGetVirtualMemoryMap (
   if (HaveFb) {
     CarveReservedRange (FbBase, FbSize);
   }
+
+  //
+  // Boot log ring (ExynosLogRing.h), written since PrePi entry.
+  //
+  CarveReservedRange (LOG_RING_BASE, LOG_RING_SIZE);
 
   VirtualMemoryTable = AllocatePages (
                          EFI_SIZE_TO_PAGES (sizeof (ARM_MEMORY_REGION_DESCRIPTOR) * MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS)

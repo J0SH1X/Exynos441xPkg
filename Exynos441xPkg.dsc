@@ -142,6 +142,7 @@
   # USB peripheral (device mode only): EFI_USBFN_IO_PROTOCOL for KDNET.
   #
   Exynos441xPkg/Drivers/UsbFnDxe/UsbFnDxe.inf
+  Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
 
   #
   # UEFI Shell.

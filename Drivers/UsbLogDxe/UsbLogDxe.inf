@@ -1,0 +1,35 @@
+#
+#  Stream the boot log ring to a USB host over EFI_USBFN_IO_PROTOCOL
+#  (vendor device 1209:0001, bulk IN 0x81).
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Exynos441xUsbLogDxe
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c00a
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = UsbLogDxeInitialize
+
+[Sources.common]
+  UsbLogDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiUsbFunctionIoProtocolGuid
+
+[Depex]
+  gEfiUsbFunctionIoProtocolGuid

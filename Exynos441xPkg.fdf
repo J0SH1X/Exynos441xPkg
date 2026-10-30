@@ -169,6 +169,7 @@ APRIORI DXE {
   # USB peripheral (device mode only): EFI_USBFN_IO_PROTOCOL for KDNET.
   #
   INF Exynos441xPkg/Drivers/UsbFnDxe/UsbFnDxe.inf
+  INF Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
 
   #
   # Status code + variables
