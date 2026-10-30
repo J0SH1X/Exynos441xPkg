@@ -225,6 +225,14 @@ PlatformBootManagerBeforeConsole (
   )
 {
   //
+  // End of the platform's DXE phase.  Until this is signalled the security
+  // handler defers every image that does not come from a firmware volume
+  // ("3rd party image ... deferred to load before EndOfDxe"), so nothing on a
+  // FAT volume, LinuxBoot.efi included, could be started from the Shell.
+  //
+  EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+
+  //
   // Blank the panel so the console output starts on a clean screen instead
   // of scrolling into whatever DXE printed during dispatch.
   //
