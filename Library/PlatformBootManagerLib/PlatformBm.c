@@ -21,6 +21,7 @@
 #include <Library/UefiLib.h>
 
 #include <Protocol/DevicePath.h>
+#include <Protocol/KeypadDevice.h>
 #include <Protocol/LoadedImage.h>
 
 //
@@ -244,6 +245,14 @@ PlatformBootManagerBeforeConsole (
   //
   FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, AddOutput);
   FilterAndProcess (&gEfiSimpleTextInProtocolGuid, AddInput);
+
+  //
+  // The keypad handle (GenericKeypadDeviceDxe's KEYPAD_DEVICE_PROTOCOL
+  // instance) carries a device path, so adding it to ConIn makes
+  // ConnectAllDefaultConsoles() connect it -- and KeypadDxe's driver
+  // binding then produces SimpleTextIn on it.  Same wiring as HtcLeoPkg.
+  //
+  FilterAndProcess (&gEFIDroidKeypadDeviceProtocolGuid, AddInput);
 
   // The Shell has to exist before BDS sorts BootOrder.
   AddBootOptionForFile (SHELL_APP_TITLE, &gUefiShellFileGuid);

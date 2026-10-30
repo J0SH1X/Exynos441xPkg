@@ -1,0 +1,59 @@
+## @file
+# Keypad Driver.
+#
+# Produces SimpleTextIn / SimpleTextInEx on any handle carrying
+# KEYPAD_DEVICE_PROTOCOL, polling it from a 20 ms periodic timer.
+# Ported verbatim from HtcLeoPkg (QSD8250Pkg).
+#
+# Copyright (c) 2006 - 2016, Intel Corporation. All rights reserved.<BR>
+#
+# This program and the accompanying materials
+# are licensed and made available under the terms and conditions of the BSD License
+# which accompanies this distribution.  The full text of the license may be found at
+# http://opensource.org/licenses/bsd-license.php
+#
+# THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
+# WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+#
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = KeypadDxe
+  FILE_GUID                      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c006
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = InitializeKeypad
+
+[Sources]
+  ComponentName.c
+  Keypad.h
+  KeypadController.c
+  KeypadTextIn.c
+  Keypad.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  MemoryAllocationLib
+  UefiRuntimeServicesTableLib
+  DebugLib
+  DevicePathLib
+  UefiBootServicesTableLib
+  UefiLib
+  UefiDriverEntryPoint
+  BaseLib
+  BaseMemoryLib
+  TimerLib
+  PcdLib
+  IoLib
+
+[Protocols]
+  gEfiSimpleTextInProtocolGuid                  ## BY_START
+  gEfiSimpleTextInputExProtocolGuid             ## BY_START
+  gEFIDroidKeypadDeviceProtocolGuid
+  gEfiDevicePathProtocolGuid

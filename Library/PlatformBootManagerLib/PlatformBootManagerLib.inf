@@ -38,3 +38,4 @@
   gEfiSimpleTextOutProtocolGuid
   gEfiSimpleTextInProtocolGuid
   gEfiGraphicsOutputProtocolGuid
+  gEFIDroidKeypadDeviceProtocolGuid

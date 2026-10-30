@@ -1,0 +1,24 @@
+#
+#  Keypad device helper: press / longpress / keyrepeat state machine.
+#  Ported verbatim from HtcLeoPkg (QSD8250Pkg).
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = KeypadDeviceHelperLib
+  FILE_GUID                      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c004
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = KeypadDeviceHelperLib
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+
+[Sources.common]
+  KeypadDeviceHelperLib.c

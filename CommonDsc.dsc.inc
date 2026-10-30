@@ -74,6 +74,10 @@
   TimerLib|Exynos441xPkg/Library/MctTimerLib/MctTimerLib.inf
   PlatformBootManagerLib|Exynos441xPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
 
+  # Keypad chain (GenericKeypadDeviceDxe -> KeypadDxe -> SimpleTextIn)
+  KeypadDeviceHelperLib|Exynos441xPkg/Library/KeypadDeviceHelperLib/KeypadDeviceHelperLib.inf
+  KeypadDeviceImplLib|Exynos441xPkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
+
   PeCoffExtraActionLib|ArmPkg/Library/DebugPeCoffExtraActionLib/DebugPeCoffExtraActionLib.inf
   DebugAgentLib|MdeModulePkg/Library/DebugAgentLibNull/DebugAgentLibNull.inf
   DebugAgentTimerLib|EmbeddedPkg/Library/DebugAgentTimerLibNull/DebugAgentTimerLibNull.inf

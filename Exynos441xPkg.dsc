@@ -121,6 +121,8 @@
   #
   Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf
   Exynos441xPkg/Drivers/I2CDxe/I2CDxe.inf
+  Exynos441xPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
+  Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
   # UEFI Shell.

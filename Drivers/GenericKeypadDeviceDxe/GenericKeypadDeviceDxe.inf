@@ -1,0 +1,41 @@
+#
+#  Installs KEYPAD_DEVICE_PROTOCOL + device path on its handle; the
+#  platform library then registers that handle as console input and
+#  KeypadDxe's driver binding produces SimpleTextIn from it.
+#  Ported from HtcLeoPkg (QSD8250Pkg).
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = GenericKeypadDeviceDxe
+  FILE_GUID                      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c005
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+
+  ENTRY_POINT                    = KeypadDeviceDxeInitialize
+
+[Sources.common]
+  GenericKeypadDevice.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  MemoryAllocationLib
+  KeypadDeviceImplLib
+  IoLib
+  DebugLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gEFIDroidKeypadDeviceProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gExynosGpioProtocolGuid
+
+[Depex]
+  gExynosGpioProtocolGuid

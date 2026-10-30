@@ -1,0 +1,31 @@
+#
+#  Keypad device implementation for the Galaxy Note 1 (GT-N7000):
+#  the four gpio-keys of u1_buttons[] behind KEYPAD_DEVICE_PROTOCOL.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = KeypadDeviceImplLib
+  FILE_GUID                      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c003
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = KeypadDeviceImplLib
+  CONSTRUCTOR                    = KeypadDeviceImplConstructor
+
+[Sources.common]
+  KeypadDeviceImplLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  KeypadDeviceHelperLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gExynosGpioProtocolGuid
+  gEFIDroidKeypadDeviceProtocolGuid

@@ -144,6 +144,14 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/I2CDxe/I2CDxe.inf
 
   #
+  # Keypad chain: GpioDxe must dispatch before GenericKeypadDeviceDxe
+  # (its DEPEX), which publishes KEYPAD_DEVICE_PROTOCOL for KeypadDxe's
+  # driver binding to turn into SimpleTextIn.
+  #
+  INF Exynos441xPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
+  INF Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
