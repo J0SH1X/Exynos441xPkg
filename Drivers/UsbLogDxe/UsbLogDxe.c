@@ -9,7 +9,9 @@
     position survives bus resets (up to one ring of history).
   - Interface 1, bulk OUT 0x02 / IN 0x82: commands (USBDBG_*): ping, memory
     read, 32-bit write, reset into normal / download / recovery mode.
-    Host side: Tools/usbdbg.py.
+    Host side: Tools/usbdbg.py.  File transfer to/from the FAT volumes
+    (USBDBG_VOLUMES / FOPEN / FWRITE / FREAD / FCLOSE) rides on the same
+    channel: requests may carry up to 4 KiB of payload after the header.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -22,6 +24,11 @@
 #include <Library/IoLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/DevicePathLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Library/PrintLib.h>
+#include <Guid/FileInfo.h>
+#include <Protocol/SimpleFileSystem.h>
 #include <Protocol/UsbFunctionIo.h>
 
 #include <ExynosLogRing.h>
@@ -43,10 +50,17 @@
 #define USBDBG_READ        2   // Arg0 address, Arg1 length (<= 4096)
 #define USBDBG_WRITE32     3   // Arg0 address, Arg1 value
 #define USBDBG_RESET       4   // Arg0: 0 normal, 1 download, 4 recovery
+#define USBDBG_VOLUMES     5   // -> "index: device path" lines
+#define USBDBG_FOPEN       6   // Arg0 volume | mode << 8 (1 = write), payload ASCII path
+#define USBDBG_FWRITE      7   // payload appended to the open file
+#define USBDBG_FREAD       8   // Arg0 length (<= 4096) -> next bytes (short = EOF)
+#define USBDBG_FCLOSE      9   // flush + close
+#define USBDBG_MAX_PAYLOAD 4096
 
 #define USBDBG_OK          0
 #define USBDBG_EBADCMD     1
 #define USBDBG_EBADARG     2
+#define USBDBG_EFILE       3   // + EFI status in Reply.Reserved
 
 typedef struct {
   UINT32  Magic;
@@ -122,7 +136,9 @@ STATIC UINT8                  mEp0[64];
 #define DBG_EP  2
 STATIC BOOLEAN                mDbgRxPosted;
 STATIC BOOLEAN                mDbgTxBusy;
-STATIC UINT8                  mDbgRx[512];
+STATIC UINT8                  mDbgRx[sizeof (USBDBG_HEADER) + USBDBG_MAX_PAYLOAD];
+STATIC EFI_FILE_PROTOCOL      *mDbgFile;            // file open for FWRITE/FREAD
+STATIC BOOLEAN                mDbgFileWrite;        // opened for writing
 STATIC UINT8                  mDbgTx[sizeof (USBDBG_REPLY) + USBDBG_MAX_READ];
 STATIC INT32                  mPendingReset = -1;   // reboot mode once the reply is out
 
@@ -266,6 +282,129 @@ DbgReset (
 }
 
 /**
+  Root directory of the Index-th FAT volume (LocateHandleBuffer order).
+**/
+STATIC
+EFI_STATUS
+DbgOpenVolume (
+  IN  UINTN              Index,
+  OUT EFI_FILE_PROTOCOL  **Root
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_HANDLE                       *Handles;
+  UINTN                            Count;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
+
+  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid,
+                                    NULL, &Count, &Handles);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  Status = EFI_NOT_FOUND;
+  if (Index < Count) {
+    Status = gBS->HandleProtocol (Handles[Index], &gEfiSimpleFileSystemProtocolGuid,
+                                  (VOID **)&Fs);
+    if (!EFI_ERROR (Status)) {
+      Status = Fs->OpenVolume (Fs, Root);
+    }
+  }
+  FreePool (Handles);
+  return Status;
+}
+
+/**
+  "index: device path" per FAT volume into Out (ASCII, NUL-free).
+**/
+STATIC
+UINT32
+DbgListVolumes (
+  OUT CHAR8  *Out,
+  IN  UINTN  OutSize
+  )
+{
+  EFI_HANDLE  *Handles;
+  UINTN       Count;
+  UINTN       Index;
+  UINTN       Used;
+  CHAR16      *Text;
+
+  Used = 0;
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid,
+                                          NULL, &Count, &Handles))) {
+    return 0;
+  }
+  for (Index = 0; (Index < Count) && (Used + 1 < OutSize); Index++) {
+    Text  = ConvertDevicePathToText (DevicePathFromHandle (Handles[Index]), TRUE, TRUE);
+    Used += AsciiSPrint (Out + Used, OutSize - Used, "%u: %s\n", Index,
+                         (Text != NULL) ? Text : L"?");
+    if (Text != NULL) {
+      FreePool (Text);
+    }
+  }
+  FreePool (Handles);
+  return (UINT32)Used;
+}
+
+/**
+  FOPEN: Arg0 bits 7:0 volume, bit 8 write (create, truncating an existing
+  file).  Payload: ASCII path such as \\zImage.
+**/
+STATIC
+EFI_STATUS
+DbgFileOpen (
+  IN UINT32       Arg0,
+  IN CONST UINT8  *Payload,
+  IN UINTN        Length
+  )
+{
+  EFI_STATUS         Status;
+  EFI_FILE_PROTOCOL  *Root;
+  CHAR16             Path[256];
+  UINTN              Index;
+  BOOLEAN            Write;
+
+  if (mDbgFile != NULL) {
+    mDbgFile->Close (mDbgFile);
+    mDbgFile = NULL;
+  }
+  if ((Length == 0) || (Length >= ARRAY_SIZE (Path))) {
+    return EFI_INVALID_PARAMETER;
+  }
+  for (Index = 0; Index < Length; Index++) {
+    Path[Index] = Payload[Index];
+  }
+  Path[Length] = L'\0';
+  Write = ((Arg0 >> 8) & 1) != 0;
+
+  Status = DbgOpenVolume (Arg0 & 0xFF, &Root);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Write) {
+    //
+    // Truncate: delete an existing file, then create it fresh.
+    //
+    if (!EFI_ERROR (Root->Open (Root, &mDbgFile, Path,
+                                EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+      mDbgFile->Delete (mDbgFile);
+      mDbgFile = NULL;
+    }
+    Status = Root->Open (Root, &mDbgFile, Path,
+                         EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
+  } else {
+    Status = Root->Open (Root, &mDbgFile, Path, EFI_FILE_MODE_READ, 0);
+  }
+  if (EFI_ERROR (Status)) {
+    mDbgFile = NULL;
+  }
+  mDbgFileWrite = Write;
+  Root->Close (Root);
+  return Status;
+}
+
+/**
   Execute one request from mDbgRx and send its reply on EP 0x82.
 **/
 STATIC
@@ -279,6 +418,9 @@ DbgHandle (
   UINT8          *Data;
   UINT32         Index;
   UINTN          Size;
+  UINT8          *Payload;
+  UINTN          PayloadLength;
+  EFI_STATUS     Status;
 
   Rsp  = (USBDBG_REPLY *)mDbgTx;
   Data = mDbgTx + sizeof (USBDBG_REPLY);
@@ -287,6 +429,9 @@ DbgHandle (
   Rsp->Status = USBDBG_OK;
 
   CopyMem (&Req, mDbgRx, MIN (Length, sizeof (Req)));
+  Payload       = mDbgRx + sizeof (USBDBG_HEADER);
+  PayloadLength = (Length > sizeof (Req)) ? (Length - sizeof (Req)) : 0;
+  Status        = EFI_SUCCESS;
   if ((Length < sizeof (Req)) || (Req.Magic != USBDBG_REQ_MAGIC)) {
     Rsp->Status = USBDBG_EBADCMD;
   } else {
@@ -329,10 +474,70 @@ DbgHandle (
         mPendingReset = (INT32)Req.Arg0;   // after the reply went out
         break;
 
+      case USBDBG_VOLUMES:
+        Rsp->Length = DbgListVolumes ((CHAR8 *)Data, USBDBG_MAX_READ);
+        break;
+
+      case USBDBG_FOPEN:
+        Status = DbgFileOpen (Req.Arg0, Payload, PayloadLength);
+        break;
+
+      case USBDBG_FWRITE:
+        if (mDbgFile == NULL) {
+          Status = EFI_NOT_READY;
+          break;
+        }
+        Size   = PayloadLength;
+        Status = mDbgFile->Write (mDbgFile, &Size, Payload);
+        if (!EFI_ERROR (Status) && (Size != PayloadLength)) {
+          Status = EFI_VOLUME_FULL;
+        }
+        break;
+
+      case USBDBG_FREAD:
+        if ((mDbgFile == NULL) || (Req.Arg0 > USBDBG_MAX_READ)) {
+          Status = (mDbgFile == NULL) ? EFI_NOT_READY : EFI_INVALID_PARAMETER;
+          break;
+        }
+        Size   = Req.Arg0;
+        Status = mDbgFile->Read (mDbgFile, &Size, Data);
+        if (!EFI_ERROR (Status)) {
+          //
+          // A short reply that is still a whole number of 512-byte packets
+          // would not end the host's larger read: hand one byte back.
+          //
+          if ((Size != 0) && (Size < Req.Arg0) &&
+              (((sizeof (USBDBG_REPLY) + Size) % 512) == 0)) {
+            UINT64  Pos;
+
+            mDbgFile->GetPosition (mDbgFile, &Pos);
+            mDbgFile->SetPosition (mDbgFile, Pos - 1);
+            Size--;
+          }
+          Rsp->Length = (UINT32)Size;
+        }
+        break;
+
+      case USBDBG_FCLOSE:
+        if (mDbgFile != NULL) {
+          if (mDbgFileWrite) {
+            Status = mDbgFile->Flush (mDbgFile);   // FAT refuses Flush on read-only opens
+          }
+          mDbgFile->Close (mDbgFile);
+          mDbgFile = NULL;
+        }
+        break;
+
       default:
         Rsp->Status = USBDBG_EBADCMD;
         break;
     }
+  }
+
+  if (EFI_ERROR (Status)) {
+    Rsp->Status   = USBDBG_EFILE;
+    Rsp->Reserved = (UINT32)Status;
+    Rsp->Length   = 0;
   }
 
   Size = sizeof (USBDBG_REPLY) + Rsp->Length;

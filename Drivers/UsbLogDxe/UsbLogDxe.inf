@@ -25,6 +25,9 @@
   BaseLib
   BaseMemoryLib
   DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
   IoLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
@@ -32,6 +35,10 @@
 
 [Protocols]
   gEfiUsbFunctionIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid
 
 [Depex]
   gEfiUsbFunctionIoProtocolGuid

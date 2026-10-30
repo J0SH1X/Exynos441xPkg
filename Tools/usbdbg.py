@@ -7,11 +7,15 @@
     usbdbg.py poke ADDR VALUE            32-bit write
     usbdbg.py reboot [normal|download|recovery]
     usbdbg.py flash [PAYLOAD]            reboot to download mode + heimdall flash
+    usbdbg.py volumes                    FAT volumes (index: device path)
+    usbdbg.py push LOCAL [\\PATH] [--vol N]   copy to the phone, verified by read-back
+    usbdbg.py pull \\PATH LOCAL [--vol N]     copy from the phone
 
 Numbers accept 0x prefixes.  Works next to Tools/usblog.py (interface 0).
 Uses libusb-1.0 through ctypes; run as root or add a udev rule for 1209:0001.
 """
 import ctypes
+import hashlib
 import os
 import struct
 import subprocess
@@ -23,7 +27,9 @@ DL_VID, DL_PID = 0x04E8, 0x685D              # Samsung download mode
 EP_OUT, EP_IN, IFACE = 0x02, 0x82, 1
 REQ_MAGIC, RSP_MAGIC = 0x47424455, 0x52424455  # 'UDBG', 'UDBR'
 PING, READ, WRITE32, RESET = 1, 2, 3, 4
+VOLUMES, FOPEN, FWRITE, FREAD, FCLOSE = 5, 6, 7, 8, 9
 MAX_READ = 4096
+CHUNK = 4000          # 16 + 4000 is no multiple of 512: every request ends short
 MODES = {"normal": 0, "download": 1, "recovery": 4}
 DEFAULT_PAYLOAD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "..", "Artifacts", "bootpayload.bin")
@@ -64,8 +70,11 @@ class Dbg:
         lib.libusb_release_interface(self.h, IFACE)
         lib.libusb_close(self.h)
 
-    def call(self, cmd, a0=0, a1=0, expect=0):
-        req = struct.pack("<IIII", REQ_MAGIC, cmd, a0, a1)
+    def call(self, cmd, a0=0, a1=0, expect=0, payload=b""):
+        # A request that is a whole number of 512-byte packets would not end
+        # the phone's receive (no ZLP): callers keep 16 + payload off that.
+        assert (16 + len(payload)) % 512 != 0
+        req = struct.pack("<IIII", REQ_MAGIC, cmd, a0, a1) + payload
         done = ctypes.c_int(0)
         rc = lib.libusb_bulk_transfer(self.h, EP_OUT, req, len(req), ctypes.byref(done), 2000)
         if rc:
@@ -76,11 +85,11 @@ class Dbg:
         rc = lib.libusb_bulk_transfer(self.h, EP_IN, buf, 16 + expect, ctypes.byref(done), 3000)
         if rc:
             sys.exit(f"receive: {lib.libusb_error_name(rc).decode()}")
-        magic, status, length, _ = struct.unpack_from("<IIII", buf.raw)
+        magic, status, length, efi = struct.unpack_from("<IIII", buf.raw)
         if magic != RSP_MAGIC:
             sys.exit(f"bad reply magic {magic:#x}")
         if status:
-            sys.exit(f"device error {status}")
+            sys.exit(f"device error {status}" + (f" (EFI status {efi:#x})" if efi else ""))
         return buf.raw[16:16 + length]
 
     def read(self, addr, length):
@@ -91,6 +100,41 @@ class Dbg:
             addr += n
             length -= n
         return out
+
+
+def push(d, local, remote, vol):
+    data = open(local, "rb").read()
+    d.call(FOPEN, vol | 0x100, payload=remote.encode())
+    t = time.monotonic()
+    off = 0
+    while off < len(data):
+        n = min(CHUNK, len(data) - off)
+        if (16 + n) % 512 == 0:
+            n -= 1
+        d.call(FWRITE, payload=data[off:off + n])
+        off += n
+        if off % (CHUNK * 256) < CHUNK:
+            print(f"  {off}/{len(data)} bytes", flush=True)
+    d.call(FCLOSE)
+    secs = time.monotonic() - t
+    print(f"wrote {len(data)} bytes in {secs:.1f} s ({len(data) / secs / 1024:.0f} KiB/s)")
+    back = pull_bytes(d, remote, vol)
+    ok = hashlib.sha256(back).digest() == hashlib.sha256(data).digest()
+    print(f"verify: {'OK' if ok else 'MISMATCH'} (sha256 {hashlib.sha256(data).hexdigest()[:16]})")
+    if not ok:
+        sys.exit(1)
+
+
+def pull_bytes(d, remote, vol):
+    d.call(FOPEN, vol, payload=remote.encode())
+    out = b""
+    while True:
+        chunk = d.call(FREAD, CHUNK, expect=CHUNK)
+        out += chunk
+        if not chunk:
+            break
+    d.call(FCLOSE)
+    return out
 
 
 def hexdump(addr, data, words):
@@ -155,6 +199,21 @@ def main(argv):
             hexdump(addr, data, words=False)
     elif cmd == "poke":
         d.call(WRITE32, num(args[0]), num(args[1]))
+    elif cmd in ("volumes", "push", "pull"):
+        vol = 0
+        if "--vol" in args:
+            i = args.index("--vol")
+            vol = num(args[i + 1])
+            del args[i:i + 2]
+        if cmd == "volumes":
+            print(d.call(VOLUMES, expect=MAX_READ).decode(), end="")
+        elif cmd == "push":
+            remote = args[1] if len(args) > 1 else "\\" + os.path.basename(args[0])
+            push(d, args[0], remote, vol)
+        else:
+            data = pull_bytes(d, args[0], vol)
+            open(args[1], "wb").write(data)
+            print(f"{len(data)} bytes -> {args[1]}")
     else:
         sys.exit(__doc__)
     d.close()
