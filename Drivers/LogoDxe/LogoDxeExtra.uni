@@ -1,0 +1,9 @@
+// /** @file
+// Exynos441xPkg logo image strings.
+//
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+// **/
+
+#string STR_PROPERTIES_MODULE_NAME
+#language en-US
+"Exynos441xPkg Logo Image File"

@@ -1,0 +1,61 @@
+##
+#  Exynos441xPkg platform logo.
+#
+#  Publishes the "Exynos / 4412Pkg" bitmap (Logo.bmp, packaged as an HII
+#  image resource) through EDKII_PLATFORM_LOGO_PROTOCOL.  PlatformBm
+#  draws it via BootLogoLib's BootLogoEnableLogo().
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = LogoDxe
+  MODULE_UNI_FILE                = LogoDxe.uni
+  FILE_GUID                      = EBD56BBB-C2E8-4C6A-8552-8D603C5BA52B
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+
+  ENTRY_POINT                    = InitializeLogo
+
+#
+#  This flag specifies whether HII resource section is generated into PE image.
+#
+  UEFI_HII_RESOURCE_SECTION      = TRUE
+
+#
+# The following information is for reference only and not required by the build tools.
+#
+#  VALID_ARCHITECTURES           = ARM
+#
+
+[Sources]
+  Logo.bmp
+  Logo.c
+  Logo.idf
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiHiiDatabaseProtocolGuid        ## CONSUMES
+  gEfiHiiImageExProtocolGuid         ## CONSUMES
+  gEfiHiiPackageListProtocolGuid     ## PRODUCES CONSUMES
+  gEdkiiPlatformLogoProtocolGuid     ## PRODUCES
+
+#
+# Not dispatched until the HII services this driver consumes are up, so the
+# image resource cannot be published against a half-initialised HII Database.
+#
+[Depex]
+  gEfiHiiDatabaseProtocolGuid AND
+  gEfiHiiImageExProtocolGuid
+
+[UserExtensions.TianoCore."ExtraFiles"]
+  LogoDxeExtra.uni

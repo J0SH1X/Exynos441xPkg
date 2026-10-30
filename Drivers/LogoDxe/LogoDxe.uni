@@ -1,0 +1,12 @@
+// /** @file
+// Exynos441xPkg platform logo.
+//
+// Publishes the "Exynos / 4412Pkg" ASCII art bitmap through the EDKII
+// Platform Logo protocol.
+//
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+// **/
+
+#string STR_MODULE_ABSTRACT             #language en-US "Exynos441xPkg platform logo"
+
+#string STR_MODULE_DESCRIPTION          #language en-US "Publishes the Exynos / 4412Pkg logo bitmap through the EDKII Platform Logo protocol."
