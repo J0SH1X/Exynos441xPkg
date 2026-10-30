@@ -1,0 +1,56 @@
+/** @file
+  Multiple APIC Description Table: the GIC.
+
+  Only CPU0 is listed.  Windows starts secondary cores through the ARM
+  parking protocol, which this firmware does not implement yet, so a second
+  GICC entry would stall the boot.  The Cortex-A9 PMU interrupt goes through
+  the Exynos interrupt combiner and has no plain GSIV, hence 0.
+
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+**/
+
+#include <Library/AcpiLib.h>
+#include "Platform.h"
+
+#pragma pack (1)
+typedef struct {
+  EFI_ACPI_6_0_MULTIPLE_APIC_DESCRIPTION_TABLE_HEADER  Header;
+  EFI_ACPI_6_0_GIC_STRUCTURE                           Gicc[1];
+  EFI_ACPI_6_0_GIC_DISTRIBUTOR_STRUCTURE               Gicd;
+} EXYNOS_MADT;
+#pragma pack ()
+
+EXYNOS_MADT  Madt = {
+  {
+    EXYNOS_ACPI_HEADER (EFI_ACPI_6_0_MULTIPLE_APIC_DESCRIPTION_TABLE_SIGNATURE,
+                        EXYNOS_MADT,
+                        EFI_ACPI_6_0_MULTIPLE_APIC_DESCRIPTION_TABLE_REVISION),
+    EXYNOS_GICC_BASE,                       // LocalApicAddress
+    0                                       // Flags
+  },
+  {
+    EFI_ACPI_6_0_GICC_STRUCTURE_INIT (
+      0,                                    // CPU interface number
+      0,                                    // ACPI processor UID
+      0,                                    // MPIDR affinity (core 0)
+      EFI_ACPI_6_0_GIC_ENABLED,
+      0,                                    // PMU interrupt: none (combiner)
+      EXYNOS_GICC_BASE,
+      0, 0, 0, 0,                           // no virtualisation, no GICR
+      0                                     // efficiency class
+      ),
+  },
+  EFI_ACPI_6_0_GIC_DISTRIBUTOR_INIT (0, EXYNOS_GICD_BASE, 0, EFI_ACPI_6_0_GIC_V2)
+};
+
+//
+// Linker entry point.  A function, not a pointer variable: a pointer would be
+// placed in the data section ahead of the table and GenFw would emit it too.
+//
+VOID *
+ReferenceAcpiTable (
+  VOID
+  )
+{
+  return &Madt;
+}

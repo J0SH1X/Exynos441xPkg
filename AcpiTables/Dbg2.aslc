@@ -1,0 +1,78 @@
+/** @file
+  Debug Port Table 2: KDNET over USB (EEM) on the DWC2 device controller.
+
+  ARM KDNET-USB-EEM entries are PortType 0x8003 (NET) with PortSubtype
+  0x5143; the debugger loads the transport by that pair (kd_8003_5143.dll,
+  which kdnet.exe lists as "Device-mode USB controller with Vendor ID
+  5143").  Microsoft documents it for Synopsys USB 3.0 and Qualcomm
+  controllers; whether it can drive this DWC2 (or uses the firmware's
+  EFI_USBFN_IO_PROTOCOL while in the boot environment) is what this table
+  is here to find out.
+
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+**/
+
+#include <IndustryStandard/DebugPort2Table.h>
+#include <Library/AcpiLib.h>
+#include "Platform.h"
+
+#define DBG2_PORT_SUBTYPE_KDNET_USB  0x5143
+#define USB_NAMESPACE                "\\_SB.UFN0"
+
+#pragma pack (1)
+typedef struct {
+  EFI_ACPI_DBG2_DEBUG_DEVICE_INFORMATION_STRUCT  Info;
+  EFI_ACPI_6_0_GENERIC_ADDRESS_STRUCTURE         BaseAddress;
+  UINT32                                         AddressSize;
+  CHAR8                                          NameSpace[sizeof (USB_NAMESPACE)];
+} EXYNOS_DBG2_DEVICE;
+
+typedef struct {
+  EFI_ACPI_DEBUG_PORT_2_DESCRIPTION_TABLE  Header;
+  EXYNOS_DBG2_DEVICE                       Usb;
+} EXYNOS_DBG2;
+#pragma pack ()
+
+EXYNOS_DBG2  Dbg2 = {
+  {
+    EXYNOS_ACPI_HEADER (EFI_ACPI_6_0_DEBUG_PORT_2_TABLE_SIGNATURE,
+                        EXYNOS_DBG2,
+                        EFI_ACPI_DEBUG_PORT_2_TABLE_REVISION),
+    OFFSET_OF (EXYNOS_DBG2, Usb),           // OffsetDbgDeviceInfo
+    1                                       // NumberDbgDeviceInfo
+  },
+  {
+    {
+      EFI_ACPI_DBG2_DEBUG_DEVICE_INFORMATION_STRUCT_REVISION,
+      sizeof (EXYNOS_DBG2_DEVICE),
+      1,                                    // one base address register
+      sizeof (USB_NAMESPACE),
+      OFFSET_OF (EXYNOS_DBG2_DEVICE, NameSpace),
+      0,                                    // OemDataLength
+      0,                                    // OemDataOffset
+      EFI_ACPI_DBG2_PORT_TYPE_NET,
+      DBG2_PORT_SUBTYPE_KDNET_USB,
+      { EFI_ACPI_RESERVED_BYTE, EFI_ACPI_RESERVED_BYTE },
+      OFFSET_OF (EXYNOS_DBG2_DEVICE, BaseAddress),
+      OFFSET_OF (EXYNOS_DBG2_DEVICE, AddressSize)
+    },
+    {
+      EFI_ACPI_6_0_SYSTEM_MEMORY, 32, 0, EFI_ACPI_6_0_DWORD,
+      EXYNOS_USB_DEVICE_BASE
+    },
+    EXYNOS_USB_DEVICE_SIZE,
+    USB_NAMESPACE
+  }
+};
+
+//
+// Linker entry point.  A function, not a pointer variable: a pointer would be
+// placed in the data section ahead of the table and GenFw would emit it too.
+//
+VOID *
+ReferenceAcpiTable (
+  VOID
+  )
+{
+  return &Dbg2;
+}

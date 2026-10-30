@@ -215,6 +215,15 @@
   gEfiMdePkgTokenSpaceGuid.PcdDefaultTerminalType|4
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultReceiveFifoDepth|32
 
+  # ACPI: XSDT only (ARM must not expose an RSDT; edk2 defaults this only on
+  # AARCH64), and IDs for the RSDP/XSDT that AcpiTableDxe builds itself.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiExposedTableVersions|0x20
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemId|"SAMSNG"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId|0x2030313234595845
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemRevision|0x00000001
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorId|0x324B4445
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorRevision|0x00000001
+
   # DEBUG_ASSERT_ENABLED       0x01
   # DEBUG_PRINT_ENABLED        0x02
   # DEBUG_CODE_ENABLED         0x04

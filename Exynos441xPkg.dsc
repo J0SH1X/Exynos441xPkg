@@ -145,6 +145,13 @@
   Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
 
   #
+  # ACPI: minimal FADT/MADT/DSDT + DBG2 (KDNET over USB) for Windows.
+  #
+  MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
+  MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
+  Exynos441xPkg/AcpiTables/AcpiTables.inf
+
+  #
   # Downstream Linux booter (copy LinuxBoot.efi + zImage to any FAT volume).
   #
   Exynos441xPkg/Application/LinuxBootApp/LinuxBootApp.inf
@@ -161,6 +168,7 @@
       NULL|ShellPkg/Library/UefiShellDriver1CommandsLib/UefiShellDriver1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellDebug1CommandsLib/UefiShellDebug1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.inf
       HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
       PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
       BcfgCommandLib|ShellPkg/Library/UefiShellBcfgCommandLib/UefiShellBcfgCommandLib.inf

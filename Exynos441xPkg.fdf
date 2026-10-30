@@ -172,6 +172,13 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
 
   #
+  # ACPI
+  #
+  INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
+  INF MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
+  INF RuleOverride = ACPITABLE Exynos441xPkg/AcpiTables/AcpiTables.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
