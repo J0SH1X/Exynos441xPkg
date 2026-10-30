@@ -125,6 +125,15 @@
   Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
+  # Storage: internal eMMC (MSHCI) + microSD (HSMMC2, card-detect gated),
+  # then the disk stack (partition + FAT) on top of BlockIo.
+  #
+  Exynos441xPkg/Drivers/SdCardDxe/SdCardDxe.inf
+  MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+  FatPkg/EnhancedFatDxe/Fat.inf
+
+  #
   # UEFI Shell.
   #
   ShellPkg/Application/Shell/Shell.inf {

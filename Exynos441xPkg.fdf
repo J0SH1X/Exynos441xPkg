@@ -152,6 +152,15 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
+  # Storage: eMMC (MSHCI) + microSD (HSMMC2, card-detect gated) BlockIo,
+  # then partition + FAT on top.
+  #
+  INF Exynos441xPkg/Drivers/SdCardDxe/SdCardDxe.inf
+  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+  INF FatPkg/EnhancedFatDxe/Fat.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf

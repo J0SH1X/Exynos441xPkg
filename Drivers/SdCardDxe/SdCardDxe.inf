@@ -1,0 +1,47 @@
+#
+#  Exynos441x eMMC (MSHCI) + microSD (HSMMC2) storage driver.
+#
+#  Publishes EFI_BLOCK_IO_PROTOCOL per card; microSD bring-up is gated on the
+#  GPX3(4) card-detect GPIO.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Exynos441xSdCardDxe
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c003
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = SdCardInitialize
+
+[Sources.common]
+  SdCardDxe.c
+  MmcCore.c
+  Sdhci.c
+  Mshci.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  FrameBufferConfigLib
+  IoLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gExynosGpioProtocolGuid
+
+[Depex]
+  gExynosGpioProtocolGuid
