@@ -344,14 +344,14 @@ MmcReadExtCsd (
 
 //
 // SD bus modes, fastest first.  Each is proven with a single-block read of
-// LBA 0 before it is kept.  4-bit is left out until the data CRC errors it
-// gives on this board are understood (HANDOFF.md, unsolved): a failed 4-bit
-// attempt could leave the card in 4-bit while the host samples DAT0 only.
+// LBA 0 before it is kept; MmcWaitTran() makes a failed attempt safe to
+// follow with another ACMD6.
 //
 STATIC CONST struct {
   UINT32  Width;
   UINT32  ClockHz;
 } mSdBusModes[] = {
+  { 4, MMC_TRANSFER_CLOCK_HZ },
   { 1, MMC_TRANSFER_CLOCK_HZ },
   { 1, 3000000 },
 };
@@ -400,6 +400,7 @@ SdTuneBus (
             "MmcCore: SD %u-bit @ %u Hz: %r (sig 0x%02x%02x)\n",
             mSdBusModes[Index].Width, mSdBusModes[Index].ClockHz, Status,
             Block[510], Block[511]));
+
     if (!EFI_ERROR (Status)) {
       return EFI_SUCCESS;
     }

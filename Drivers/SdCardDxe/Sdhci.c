@@ -111,7 +111,14 @@
 #define S3C_CTRL2_ENCMDCNFMSK      (1U << 30)
 #define S3C_CTRL2_ENFBCLKRX        (1U << 14)
 #define S3C_CTRL2_ENCLKOUTHOLD     (1U << 8)
-#define S3C_CTRL3_FCSEL_ALL        ((1U << 31) | (1U << 23) | (1U << 15) | (1U << 7))
+//
+// CONTROL3 RX feedback-clock delay (FCSELn).  The kernel sets all four, but
+// it runs the card at 50 MHz high speed; at default speed (12.5 MHz here)
+// that delay samples DAT3 a bit late and 4-bit reads fail with data CRC
+// errors (one flipped DAT3 bit per block, independent of the clock rate).
+// Feedback clock on with no extra delay reads clean in 1- and 4-bit.
+//
+#define S3C_CTRL3_NO_FB_DELAY      0
 
 //
 // Tight polls before falling back to 1 ms stalls (Stall granularity is
@@ -559,7 +566,7 @@ SdhciInit (
           S3C_CTRL2_ENSTAASYNCCLR | S3C_CTRL2_ENCMDCNFMSK |
           S3C_CTRL2_ENFBCLKRX | S3C_CTRL2_ENCLKOUTHOLD;
   MmioWrite32 (Host->Base + S3C_SDHCI_CONTROL2, Ctrl2);
-  MmioWrite32 (Host->Base + S3C_SDHCI_CONTROL3, S3C_CTRL3_FCSEL_ALL);
+  MmioWrite32 (Host->Base + S3C_SDHCI_CONTROL3, S3C_CTRL3_NO_FB_DELAY);
 
   //
   // Power on the bus (3.3V).
