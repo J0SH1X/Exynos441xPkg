@@ -23,7 +23,14 @@
 
 #include "PrePi.h"
 
+#include <ExynosBootParams.h>
 #include <ExynosLogRing.h>
+
+STATIC
+VOID
+BootParamsLog (
+  VOID
+  );
 
 UINT64  mSystemMemoryEnd = FixedPcdGet64 (PcdSystemMemoryBase) +
                            FixedPcdGet64 (PcdSystemMemorySize) - 1;
@@ -106,6 +113,8 @@ PrePiMain (
                 );
   SerialPortWrite ((UINT8 *)Buffer, CharCount);
 
+  BootParamsLog ();
+
   DEBUG((
         EFI_D_INFO | EFI_D_LOAD,
         "UEFI Memory Base = 0x%p, Stack Base = 0x%p\n",
@@ -166,6 +175,126 @@ PrePiMain (
   ASSERT_EFI_ERROR (Status);
 }
 
+/**
+  Copy the bootloader's ATAG list behind the r1/r2 the BootShim saved
+  (ExynosBootParams.h), before anything can reuse that memory.  Leaves
+  AtagsSize 0 unless the list starts with ATAG_CORE, ends with ATAG_NONE
+  and fits.
+**/
+STATIC
+VOID
+BootParamsCapture (
+  VOID
+  )
+{
+  EXYNOS_BOOT_PARAMS  *Bp;
+  ATAG_HEADER         *Tag;
+  UINT64              MemBase;
+  UINT64              MemTop;
+  UINTN               Size;
+
+  Bp = BOOT_PARAMS;
+  if (Bp->Magic != BOOT_PARAMS_MAGIC) {
+    return;
+  }
+  Bp->AtagsSize = 0;
+
+  MemBase = PcdGet64 (PcdSystemMemoryBase);
+  MemTop  = MemBase + PcdGet64 (PcdSystemMemorySize);
+  if ((Bp->AtagsBase < MemBase) || (Bp->AtagsBase + 8 > MemTop) ||
+      ((Bp->AtagsBase & 3) != 0)) {
+    return;
+  }
+
+  Tag = (ATAG_HEADER *)(UINTN)Bp->AtagsBase;
+  if (Tag->Tag != ATAG_CORE) {
+    return;
+  }
+
+  Size = 0;
+  for ( ; ; ) {
+    if (Tag->Size == 0) {
+      Size += sizeof (ATAG_HEADER);   // ATAG_NONE
+      break;
+    }
+    if ((Tag->Size < 2) ||
+        (Size + Tag->Size * 4 + sizeof (ATAG_HEADER) > BOOT_PARAMS_ATAGS_MAX) ||
+        (Bp->AtagsBase + Size + Tag->Size * 4 + 8 > MemTop)) {
+      return;
+    }
+    Size += Tag->Size * 4;
+    Tag   = ATAG_NEXT (Tag);
+  }
+
+  CopyMem (Bp->Atags, (VOID *)(UINTN)Bp->AtagsBase, Size);
+  Bp->AtagsSize = (UINT32)Size;
+}
+
+/**
+  Log what the bootloader passed (machine type, parsed ATAGs).
+**/
+STATIC
+VOID
+BootParamsLog (
+  VOID
+  )
+{
+  EXYNOS_BOOT_PARAMS  *Bp;
+  ATAG_HEADER         *Tag;
+  CHAR8               Chunk[121];
+  CONST CHAR8         *Cmd;
+  UINTN               Len;
+
+  Bp = BOOT_PARAMS;
+  if (Bp->Magic != BOOT_PARAMS_MAGIC) {
+    DEBUG ((DEBUG_ERROR, "Bootloader params: none (BootShim did not save r1/r2)\n"));
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "Bootloader: machine type %u, ATAGs at 0x%x, %u bytes preserved\n",
+          Bp->MachType, Bp->AtagsBase, Bp->AtagsSize));
+  if (Bp->AtagsSize == 0) {
+    DEBUG ((DEBUG_ERROR, "Bootloader: no valid ATAG list at 0x%x\n", Bp->AtagsBase));
+    return;
+  }
+
+  for (Tag = (ATAG_HEADER *)Bp->Atags; Tag->Size != 0; Tag = ATAG_NEXT (Tag)) {
+    switch (Tag->Tag) {
+      case ATAG_CORE:
+        DEBUG ((DEBUG_INFO, "  ATAG_CORE\n"));
+        break;
+      case ATAG_MEM:
+        DEBUG ((DEBUG_INFO, "  ATAG_MEM     0x%08x bytes @ 0x%08x\n",
+                ((ATAG_MEM_DATA *)Tag)->Size, ((ATAG_MEM_DATA *)Tag)->Start));
+        break;
+      case ATAG_CMDLINE:
+        //
+        // Longer than one DEBUG() line can hold: print in pieces.
+        //
+        Cmd = ((ATAG_CMDLINE_DATA *)Tag)->Cmdline;
+        Len = AsciiStrnLenS (Cmd, (Tag->Size - 2) * 4);
+        DEBUG ((DEBUG_INFO, "  ATAG_CMDLINE (%u chars):\n", Len));
+        while (Len > 0) {
+          AsciiStrnCpyS (Chunk, sizeof (Chunk), Cmd, MIN (Len, sizeof (Chunk) - 1));
+          DEBUG ((DEBUG_INFO, "    %a\n", Chunk));
+          Cmd += MIN (Len, sizeof (Chunk) - 1);
+          Len -= MIN (Len, sizeof (Chunk) - 1);
+        }
+        break;
+      default:
+        //
+        // Payload words only (Size includes the 2-word header), up to 3.
+        //
+        DEBUG ((DEBUG_INFO, "  ATAG 0x%08x  %u words:", Tag->Tag, Tag->Size));
+        for (Len = 2; (Len < Tag->Size) && (Len < 5); Len++) {
+          DEBUG ((DEBUG_INFO, " %08x", ((UINT32 *)Tag)[Len]));
+        }
+        DEBUG ((DEBUG_INFO, "\n"));
+        break;
+    }
+  }
+}
+
 VOID
 CEntryPoint (
   IN  UINTN  MpId,
@@ -181,6 +310,11 @@ CEntryPoint (
   // Fresh boot log before the first DEBUG() (UsbLogDxe ships it to a host).
   //
   LogRingReset ();
+
+  //
+  // The bootloader's ATAG list, before anything can reuse its memory.
+  //
+  BootParamsCapture ();
 
   // Initialize the platform specific controllers
   ArmPlatformInitialize (MpId);

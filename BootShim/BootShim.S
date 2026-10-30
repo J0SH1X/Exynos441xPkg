@@ -15,6 +15,10 @@
  * SurfaceDuoPkg/BootShim and the htcleo kernel's arch-init code).
  */
 
+/* Must match Include/ExynosBootParams.h. */
+#define BOOT_PARAMS_BASE   0x40EF0000
+#define BOOT_PARAMS_MAGIC  0x41505442	/* 'BTPA' */
+
 #define DSB .byte 0x4f, 0xf0, 0x7f, 0xf5
 #define ISB .byte 0x6f, 0xf0, 0x7f, 0xf5
 
@@ -54,6 +58,23 @@ _Reset:
 	mcr	p15, 0, r0, c8, c7, 0	/* TLBIALL */
 	dsb
 	isb
+
+	/*
+	 * Preserve the Linux boot ABI registers the bootloader entered with
+	 * (r1 = machine type, r2 = ATAG list) for a later downstream-kernel
+	 * boot.  Done only now, with the D-cache off, so the stores reach DRAM;
+	 * r1/r2 are reused as scratch right below.  Layout: Include/
+	 * ExynosBootParams.h (Magic, MachType, AtagsBase, AtagsSize); PrePi
+	 * copies the ATAG list behind it.
+	 */
+	ldr	r3, =BOOT_PARAMS_BASE
+	ldr	r4, =BOOT_PARAMS_MAGIC
+	str	r4, [r3, #0]
+	str	r1, [r3, #4]
+	str	r2, [r3, #8]
+	mov	r4, #0
+	str	r4, [r3, #12]
+	dsb
 
 	/*
 	 * Locate the framebuffer THE BOOTLOADER programmed.  We cannot
