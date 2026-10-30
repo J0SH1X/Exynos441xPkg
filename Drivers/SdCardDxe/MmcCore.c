@@ -23,6 +23,7 @@
 #define CMD8_SEND_IF_COND   8   // SD
 #define CMD9_SEND_CSD       9
 #define CMD12_STOP          12
+#define CMD13_SEND_STATUS   13
 #define CMD16_SET_BLOCKLEN  16
 #define CMD17_READ_SINGLE   17
 #define CMD18_READ_MULTI    18
@@ -73,6 +74,47 @@ SendCmd (
   )
 {
   return Host->SendCmd (Host, Cmd, Arg, Flags, Resp);
+}
+
+//
+// R1 card status: error bits (OUT_OF_RANGE .. AKE_SEQ_ERROR) and the
+// CURRENT_STATE field.
+//
+#define R1_ERROR_MASK       0xFDF90008U
+#define R1_STATE(r)         (((r) >> 9) & 0xF)
+#define R1_STATE_TRAN       4
+
+/**
+  Wait until the card is back in the transfer state.  After a failed data
+  phase the card may still be clocking out the block; a command sent then
+  (ACMD6 in particular) is rejected and leaves the bus width mismatched.
+
+  @retval EFI_SUCCESS  Card in tran.
+  @retval EFI_TIMEOUT  Card never got there (~100 ms).
+**/
+STATIC
+EFI_STATUS
+MmcWaitTran (
+  IN MMC_HOST  *Host
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Resp[4];
+  UINTN       Retry;
+
+  Resp[0] = 0;
+  for (Retry = 0; Retry < 100; Retry++) {
+    Status = SendCmd (Host, CMD13_SEND_STATUS, (UINT32)Host->Card.Rca << 16,
+                      HOST_CMD_RESP_SHORT, Resp);
+    if (!EFI_ERROR (Status) && (R1_STATE (Resp[0]) == R1_STATE_TRAN)) {
+      return EFI_SUCCESS;
+    }
+    gBS->Stall (1000);
+  }
+
+  DEBUG ((DEBUG_ERROR, "MmcCore: 0x%x card not in tran, status 0x%x\n",
+          Host->Base, Resp[0]));
+  return EFI_TIMEOUT;
 }
 
 //
@@ -302,16 +344,15 @@ MmcReadExtCsd (
 
 //
 // SD bus modes, fastest first.  Each is proven with a single-block read of
-// LBA 0 before it is kept; the slower ones exist because 4-bit at 12.5 MHz
-// returned data CRC errors on the first try.
+// LBA 0 before it is kept.  4-bit is left out until the data CRC errors it
+// gives on this board are understood (HANDOFF.md, unsolved): a failed 4-bit
+// attempt could leave the card in 4-bit while the host samples DAT0 only.
 //
 STATIC CONST struct {
   UINT32  Width;
   UINT32  ClockHz;
 } mSdBusModes[] = {
-  { 4, MMC_TRANSFER_CLOCK_HZ },
   { 1, MMC_TRANSFER_CLOCK_HZ },
-  { 4, 3000000 },
   { 1, 3000000 },
 };
 
@@ -330,16 +371,22 @@ SdTuneBus (
     //
     // Card side first (ACMD6: 0 = 1-bit, 2 = 4-bit), then the host.
     //
-    Status = SendCmd (Host, CMD55_APP_CMD, (UINT32)Host->Card.Rca << 16,
-                      HOST_CMD_RESP_SHORT, Resp);
+    Status = MmcWaitTran (Host);
+    if (!EFI_ERROR (Status)) {
+      Status = SendCmd (Host, CMD55_APP_CMD, (UINT32)Host->Card.Rca << 16,
+                        HOST_CMD_RESP_SHORT, Resp);
+    }
     if (!EFI_ERROR (Status)) {
       Status = SendCmd (Host, ACMD6_SET_BUS_WIDTH,
                         (mSdBusModes[Index].Width == 4) ? 0x2 : 0x0,
                         HOST_CMD_RESP_SHORT, Resp);
     }
+    if (!EFI_ERROR (Status) && (Resp[0] & R1_ERROR_MASK)) {
+      Status = EFI_DEVICE_ERROR;
+    }
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "MmcCore: ACMD6 %u-bit failed - %r\n",
-              mSdBusModes[Index].Width, Status));
+      DEBUG ((DEBUG_ERROR, "MmcCore: ACMD6 %u-bit failed - %r (R1 0x%x)\n",
+              mSdBusModes[Index].Width, Status, Resp[0]));
       continue;
     }
     Host->SetBusWidth (Host, mSdBusModes[Index].Width);
@@ -515,7 +562,8 @@ MmcInitCard (
 //
 // After a failed data phase, a multi-block command leaves the card in the
 // data/receive state and every following command times out.  CMD12 brings
-// it back to transfer state; the result is irrelevant.
+// it back to transfer state (its result is irrelevant); then wait for tran
+// so the next command is not sent while the card is still busy.
 //
 STATIC
 VOID
@@ -529,6 +577,7 @@ MmcAbortData (
   if (Chunk > 1) {
     SendCmd (Host, CMD12_STOP, 0, HOST_CMD_RESP_BUSY, Resp);
   }
+  MmcWaitTran (Host);
 }
 
 //
@@ -561,6 +610,7 @@ MmcXferSingles (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "MmcCore: 0x%x single-block addr 0x%x failed - %r\n",
               Host->Base, Addr, Status));
+      MmcWaitTran (Host);
       return Status;
     }
 
