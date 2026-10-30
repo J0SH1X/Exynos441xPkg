@@ -42,6 +42,8 @@
   gEfiDevicePathProtocolGuid
   gExynosGpioProtocolGuid
   gExynosI2cProtocolGuid
+  gExynosClockProtocolGuid
 
 [Depex]
-  gExynosGpioProtocolGuid
+  gExynosGpioProtocolGuid AND
+  gExynosClockProtocolGuid

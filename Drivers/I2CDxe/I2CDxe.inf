@@ -32,6 +32,7 @@
 
 [Protocols]
   gExynosI2cProtocolGuid
+  gExynosClockProtocolGuid
 
 [Depex]
-  TRUE
+  gExynosClockProtocolGuid

@@ -134,6 +134,11 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
+  # Clock controller: CMU gates + special-clock rates for the drivers below.
+  #
+  INF Exynos441xPkg/Drivers/ClockDxe/ClockDxe.inf
+
+  #
   # GPIO driver: CON/DAT/PULL register banks of the three GPIO controllers.
   #
   INF Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf

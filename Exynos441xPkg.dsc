@@ -117,6 +117,11 @@
   }
 
   #
+  # Clock controller (CMU gates + special-clock rates) for the drivers below.
+  #
+  Exynos441xPkg/Drivers/ClockDxe/ClockDxe.inf
+
+  #
   # Keypad / GPIO / I2C (Galaxy Note 1 buttons: power + vol up/down + home).
   #
   Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf

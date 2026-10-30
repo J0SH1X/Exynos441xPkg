@@ -38,6 +38,7 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/ExynosGpio.h>
 #include <Protocol/ExynosI2c.h>
+#include <Protocol/ExynosClock.h>
 
 //
 // Host controller register bases (map-exynos4.h).
@@ -46,9 +47,9 @@
 #define EXYNOS4_PA_MSHCI   0x12550000  // eMMC, DesignWare MSHCI
 
 //
-// sclk_dwmci as left by the bootloader (kernel probe logs 80 MHz).  Used as
-// the CIU source clock for the CLKDIV calculation; dividers round up, so an
-// actual 40 MHz source only makes the bus slower, never out of spec.
+// Fallback sclk_dwmci rate (kernel probe logs 80 MHz) if ClockDxe cannot
+// compute the bootloader's mux parent.  Dividers round up, so an actual
+// 40 MHz source only makes the bus slower, never out of spec.
 //
 #define EXYNOS4_MSHCI_SCLK_HZ  80000000
 

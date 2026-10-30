@@ -22,6 +22,7 @@
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 
+#include <Protocol/ExynosClock.h>
 #include <Protocol/ExynosI2c.h>
 
 #define I2C_BASE(Bus)  (0x13860000 + ((Bus) * 0x10000))
@@ -54,12 +55,13 @@
 #define I2C_BUS_SPEED_HZ    100000
 #define I2C_TIMEOUT_US      10000
 
-// CMU clock gate for i2c0..7: IP_PERIL bit (6 + Bus) (kernel clock.c)
-#define CMU_BASE            0x10030000
-#define CLKGATE_IP_PERIL    (CMU_BASE + 0x0C950)
+//
+// Clock gates come from ClockDxe (gExynosClockProtocolGuid).
+//
+STATIC EXYNOS_CLOCK_PROTOCOL  *mClock;
 
 /**
-  Enable the controller's clock gate (IP_PERIL bit 6+Bus).
+  Enable the controller's clock gate (IP_PERIL bit 6+Bus) via ClockDxe.
 **/
 STATIC
 VOID
@@ -67,11 +69,7 @@ I2cEnableClock (
   IN UINT32  Bus
   )
 {
-  UINT32  Reg;
-
-  Reg = MmioRead32 (CLKGATE_IP_PERIL);
-  Reg |= (1u << (6 + Bus));
-  MmioWrite32 (CLKGATE_IP_PERIL, Reg);
+  mClock->Enable (mClock, (EXYNOS_CLOCK_ID)(ExynosClkGateI2c0 + Bus));
 }
 
 /**
@@ -339,6 +337,11 @@ I2cDxeInitialize (
   )
 {
   EFI_STATUS  Status;
+
+  Status = gBS->LocateProtocol (&gExynosClockProtocolGuid, NULL, (VOID **)&mClock);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &ImageHandle,

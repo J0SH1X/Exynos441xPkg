@@ -1,0 +1,36 @@
+#
+#  Exynos4210 clock controller (CMU): peripheral gates and special-clock
+#  rates for the other drivers.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Exynos441xClockDxe
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c004
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = ClockDxeInitialize
+
+[Sources.common]
+  ClockDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gExynosClockProtocolGuid
+
+[Depex]
+  TRUE

@@ -315,65 +315,10 @@ SdPowerOn (
 }
 
 //
-// CMU: sclk_mmc2 = mux(CLKSRC_FSYS[11:8]) / (DIV_FSYS2[3:0]+1) / (DIV_FSYS2[15:8]+1).
+// microSD card clock source: sclk_mmc2 from MPLL.  The bootloader leaves it
+// at ~8.9 MHz and the SDHCI reports no base clock, so it is set explicitly.
 //
-#define EXYNOS4210_MPLL_CON0     0x10044108
-#define EXYNOS4_CLKSRC_FSYS      0x1003C240
-#define EXYNOS4_CLKSRC_MASK_FSYS 0x1003C340
-#define EXYNOS4_CLKDIV_FSYS2     0x1003C548
-#define EXYNOS4_CLKDIV_STAT_FSYS2 0x1003C648
-#define CLKSRC_MPLL              6
-#define SD_SCLK_TARGET_HZ        50000000U
-
-/**
-  Feed HSMMC2 from MPLL at <= 50 MHz.  The bootloader leaves sclk_mmc2 at
-  ~8.9 MHz (kernel probe log), and the SDHCI reports no base clock, so the
-  rate must be known exactly for the divider to mean anything.
-
-  @return sclk_mmc2 in Hz.
-**/
-STATIC
-UINT32
-SdClockInit (
-  VOID
-  )
-{
-  UINT32  Con;
-  UINT32  Mpll;
-  UINT32  Total;
-  UINT32  Ratio;
-  UINT32  Pre;
-  UINTN   Retry;
-
-  Con = MmioRead32 (EXYNOS4210_MPLL_CON0);
-  if (((Con >> 8) & 0x3F) == 0) {
-    DEBUG ((DEBUG_ERROR, "SdCard: MPLL_CON0=0x%x unusable, sclk_mmc2 left alone\n", Con));
-    return 8888888;  // bootloader rate per the kernel's probe log
-  }
-  //
-  // Exynos4210 MPLL is a PLL4508: Fout = Fin * M / (P << (S - 1))
-  // (kernel s5p_get_pll45xx, pll_4508).
-  //
-  Mpll = (UINT32)(((UINT64)24000000 * ((Con >> 16) & 0x3FF)) /
-                  ((((Con >> 8) & 0x3F) << ((Con & 0x7) - ((Con & 0x7) ? 1 : 0)))));
-
-
-  Total = (Mpll + SD_SCLK_TARGET_HZ - 1) / SD_SCLK_TARGET_HZ;
-  Ratio = MIN (Total, 16U);
-  Pre   = (Total + Ratio - 1) / Ratio;
-
-  MmioAndThenOr32 (EXYNOS4_CLKSRC_FSYS, ~(0xFU << 8), CLKSRC_MPLL << 8);
-  MmioOr32 (EXYNOS4_CLKSRC_MASK_FSYS, 1U << 8);
-  MmioAndThenOr32 (EXYNOS4_CLKDIV_FSYS2, ~0xFF0FU, ((Pre - 1) << 8) | (Ratio - 1));
-  for (Retry = 0; Retry < 1000; Retry++) {
-    if (!(MmioRead32 (EXYNOS4_CLKDIV_STAT_FSYS2) & ((1U << 8) | (1U << 0)))) {
-      break;
-    }
-    gBS->Stall (100);
-  }
-
-  return Mpll / (Ratio * Pre);
-}
+#define SD_SCLK_TARGET_HZ  50000000U
 
 /**
   Route HSMMC2 pins: CLK/CMD = GPK2[0:1], DAT[0:3] = GPK2[3:6], all func 2
@@ -397,23 +342,21 @@ SdBoardInit (
 }
 
 /**
-  Driver entry: bring up the eMMC always, and the microSD slot only if a card
-  is detected on GPX3(4).
+  Bring up the eMMC always, and the microSD slot only if a card is detected
+  on GPX3(4).
 
-  @param[in] ImageHandle  Driver image handle.
-  @param[in] SystemTable  EFI system table.
-
-  @retval EFI_SUCCESS  At least the eMMC BlockIo was published.
+  @retval EFI_SUCCESS  Probe finished (each slot logs its own failure).
 **/
+STATIC
 EFI_STATUS
-EFIAPI
-SdCardInitialize (
-  IN EFI_HANDLE        ImageHandle,
-  IN EFI_SYSTEM_TABLE  *SystemTable
+SdCardProbe (
+  VOID
   )
 {
   EFI_STATUS            Status;
   EXYNOS_GPIO_PROTOCOL  *Gpio;
+  EXYNOS_CLOCK_PROTOCOL *Clock;
+  UINT32                SclkHz;
   BOOLEAN               CardPresent;
   UINTN                 Attempt;
   EFI_HANDLE            EmmcHandle = NULL;
@@ -424,6 +367,21 @@ SdCardInitialize (
     DEBUG ((DEBUG_ERROR, "SdCard: GPIO protocol unavailable - %r\n", Status));
     return Status;
   }
+  Status = gBS->LocateProtocol (&gExynosClockProtocolGuid, NULL, (VOID **)&Clock);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "SdCard: clock protocol unavailable - %r\n", Status));
+    return Status;
+  }
+
+  //
+  // eMMC: keep the bootloader's sclk_dwmci, just read its rate for the
+  // MSHCI divider.
+  //
+  Clock->Enable (Clock, ExynosClkGateDwmci);
+  Clock->Enable (Clock, ExynosClkSclkDwmci);
+  if (EFI_ERROR (Clock->GetRate (Clock, ExynosClkSclkDwmci, &SclkHz))) {
+    SclkHz = EXYNOS4_MSHCI_SCLK_HZ;
+  }
 
   //
   // eMMC (MSHCI) is always present: power it, mux it, publish BlockIo.
@@ -432,7 +390,7 @@ SdCardInitialize (
   for (Attempt = 0; Attempt < 2; Attempt++) {
     EmmcBoardInit (Gpio, (Attempt == 0) ? 100000 : 1000000);
 
-    Status = MshciInit (&mEmmcHost, EXYNOS4_PA_MSHCI, EXYNOS4_MSHCI_SCLK_HZ);
+    Status = MshciInit (&mEmmcHost, EXYNOS4_PA_MSHCI, SclkHz);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "SdCard: eMMC host init failed - %r\n", Status));
       continue;
@@ -475,7 +433,14 @@ SdCardInitialize (
 
   SdBoardInit (Gpio);
 
-  Status = SdhciInit (&mSdHost, EXYNOS4_PA_HSMMC2, 25000000, SdClockInit ());
+  Clock->Enable (Clock, ExynosClkGateSdmmc2);
+  Status = Clock->SetRate (Clock, ExynosClkSclkMmc2, SD_SCLK_TARGET_HZ, &SclkHz);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "SdCard: sclk_mmc2 setup failed - %r\n", Status));
+    return EFI_SUCCESS;
+  }
+
+  Status = SdhciInit (&mSdHost, EXYNOS4_PA_HSMMC2, 25000000, SclkHz);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "SdCard: microSD host init failed - %r\n", Status));
     return EFI_SUCCESS;
@@ -491,4 +456,14 @@ SdCardInitialize (
   }
 
   return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+SdCardInitialize (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  return SdCardProbe ();
 }
