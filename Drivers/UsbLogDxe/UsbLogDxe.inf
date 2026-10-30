@@ -25,7 +25,9 @@
   BaseLib
   BaseMemoryLib
   DebugLib
+  IoLib
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
   UefiDriverEntryPoint
 
 [Protocols]
