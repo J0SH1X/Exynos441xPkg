@@ -199,6 +199,7 @@ typedef struct {
   EFI_USBFN_IO_PROTOCOL     UsbFnIo;
   EFI_HANDLE                Handle;
   EFI_HARDWARE_INTERRUPT_PROTOCOL *Interrupt;
+  EFI_EVENT                 ExitBootServices;
 
   BOOLEAN                   Started;
   EFI_USB_BUS_SPEED         Speed;

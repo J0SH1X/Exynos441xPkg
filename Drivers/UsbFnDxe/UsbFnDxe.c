@@ -1020,6 +1020,26 @@ UsbFnServiceCounts (
   *Poll = mDev->PollCount;
 }
 
+/**
+  Leave the port the way the next OS expects it: no D+ pull-up (the host
+  sees a clean disconnect) and no controller interrupts.
+**/
+STATIC
+VOID
+EFIAPI
+UsbFnExitBootServices (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  if (mDev->Started) {
+    Dwc2Connect (FALSE);
+    MmioWrite32 (REG (GINTMSK), 0);
+    MmioWrite32 (REG (GAHBCFG), 0);
+    mDev->Started = FALSE;
+  }
+}
+
 EFI_STATUS
 EFIAPI
 UsbFnDxeInitialize (
@@ -1051,6 +1071,9 @@ UsbFnDxeInitialize (
     return Status;
   }
   mDev->Interrupt->DisableInterruptSource (mDev->Interrupt, DWC2_IRQ);
+
+  gBS->CreateEvent (EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_NOTIFY,
+                    UsbFnExitBootServices, NULL, &mDev->ExitBootServices);
 
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &mDev->Handle,

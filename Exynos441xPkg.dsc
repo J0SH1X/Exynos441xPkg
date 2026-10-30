@@ -145,6 +145,11 @@
   Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
 
   #
+  # Downstream Linux booter (copy LinuxBoot.efi + zImage to any FAT volume).
+  #
+  Exynos441xPkg/Application/LinuxBootApp/LinuxBootApp.inf
+
+  #
   # UEFI Shell.
   #
   ShellPkg/Application/Shell/Shell.inf {

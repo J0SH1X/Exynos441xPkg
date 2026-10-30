@@ -1,0 +1,44 @@
+#
+#  Boot a downstream ARM Linux zImage from any FAT volume with the ATAGs the
+#  Samsung bootloader passed (preserved by BootShim/PrePi).
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = LinuxBoot
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c00b
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = LinuxBootMain
+
+[Sources.common]
+  LinuxBootApp.c
+
+[Sources.ARM]
+  LinuxJump.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  MemoryAllocationLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiShellParametersProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid
