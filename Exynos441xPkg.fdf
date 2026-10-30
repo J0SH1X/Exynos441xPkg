@@ -166,6 +166,11 @@ APRIORI DXE {
   INF FatPkg/EnhancedFatDxe/Fat.inf
 
   #
+  # USB peripheral (device mode only): EFI_USBFN_IO_PROTOCOL for KDNET.
+  #
+  INF Exynos441xPkg/Drivers/UsbFnDxe/UsbFnDxe.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
