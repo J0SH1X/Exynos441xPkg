@@ -139,6 +139,11 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf
 
   #
+  # I2C driver: polling master for the eight s3c2410-style controllers.
+  #
+  INF Exynos441xPkg/Drivers/I2CDxe/I2CDxe.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf

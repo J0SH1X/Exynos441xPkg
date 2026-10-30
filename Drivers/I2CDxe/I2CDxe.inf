@@ -1,0 +1,37 @@
+#
+#  Exynos4 I2C driver: polling master for the eight s3c2410-style
+#  controllers at 0x13860000 + Bus * 0x10000.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Exynos441xI2CDxe
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c002
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = I2cDxeInitialize
+
+[Sources.common]
+  I2CDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gExynosI2cProtocolGuid
+
+[Depex]
+  TRUE
