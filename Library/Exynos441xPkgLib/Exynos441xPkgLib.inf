@@ -21,6 +21,7 @@
   Exynos441xPkg/Exynos441xPkg.dec
 
 [LibraryClasses]
+  BaseLib
   ArmLib
   HobLib
   IoLib

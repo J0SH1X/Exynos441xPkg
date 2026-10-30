@@ -108,6 +108,108 @@ CarveReservedRange (
 }
 
 /**
+  Kernel memparse(): decimal or 0x hex, optional K/M/G suffix.
+**/
+STATIC
+UINT64
+MemParse (
+  IN OUT CONST CHAR8  **Str
+  )
+{
+  CONST CHAR8  *P;
+  UINT64       Value;
+  UINTN        Base;
+  UINTN        Digit;
+
+  P     = *Str;
+  Value = 0;
+  Base  = 10;
+  if ((P[0] == '0') && ((P[1] == 'x') || (P[1] == 'X'))) {
+    Base = 16;
+    P   += 2;
+  }
+  for ( ; ; P++) {
+    if ((*P >= '0') && (*P <= '9')) {
+      Digit = *P - '0';
+    } else if ((Base == 16) && (*P >= 'a') && (*P <= 'f')) {
+      Digit = *P - 'a' + 10;
+    } else if ((Base == 16) && (*P >= 'A') && (*P <= 'F')) {
+      Digit = *P - 'A' + 10;
+    } else {
+      break;
+    }
+    Value = Value * Base + Digit;
+  }
+  switch (*P) {
+    case 'G': case 'g': Value <<= 10;   // fall through
+    case 'M': case 'm': Value <<= 10;   // fall through
+    case 'K': case 'k': Value <<= 10; P++; break;
+    default: break;
+  }
+  *Str = P;
+  return Value;
+}
+
+/**
+  Keep the Samsung kernel's RAM log (bootloader cmdline sec_log=SIZE@BASE)
+  out of UEFI's hands.  The kernel uses [BASE - 8, BASE + SIZE): "LOGM"
+  magic, write counter, then the ring (arch/arm/mach-exynos/sec_log.c).  It
+  survives a warm reset, so after a downstream-kernel crash the log can be
+  read back over the USB debug channel.
+**/
+STATIC
+VOID
+CarveSecLog (
+  VOID
+  )
+{
+  EXYNOS_BOOT_PARAMS  *Bp;
+  ATAG_HEADER         *Tag;
+  CHAR8               Cmdline[512];
+  CONST CHAR8         *P;
+  UINT64              Size;
+  UINT64              Base;
+  UINT64              Start;
+  UINT64              End;
+
+  Bp = BOOT_PARAMS;
+  if ((Bp->Magic != BOOT_PARAMS_MAGIC) || (Bp->AtagsSize == 0)) {
+    return;
+  }
+  for (Tag = (ATAG_HEADER *)Bp->Atags; Tag->Size != 0; Tag = ATAG_NEXT (Tag)) {
+    if (Tag->Tag == ATAG_CMDLINE) {
+      break;
+    }
+  }
+  if (Tag->Size == 0) {
+    return;
+  }
+
+  AsciiStrnCpyS (Cmdline, sizeof (Cmdline), ((ATAG_CMDLINE_DATA *)Tag)->Cmdline,
+                 MIN ((Tag->Size - 2) * 4, sizeof (Cmdline) - 1));
+  P = AsciiStrStr (Cmdline, "sec_log=");
+  if (P == NULL) {
+    return;
+  }
+  P   += AsciiStrLen ("sec_log=");
+  Size = MemParse (&P);
+  if (*P++ != '@') {
+    return;
+  }
+  Base = MemParse (&P);
+
+  Start = (Base - 8) & ~(UINT64)EFI_PAGE_MASK;
+  End   = (Base + Size + EFI_PAGE_MASK) & ~(UINT64)EFI_PAGE_MASK;
+  if ((Size == 0) || (Start < PcdGet64 (PcdSystemMemoryBase)) ||
+      (End > PcdGet64 (PcdSystemMemoryBase) + PcdGet64 (PcdSystemMemorySize))) {
+    return;
+  }
+
+  CarveReservedRange (Start, End - Start);
+  DEBUG ((DEBUG_INFO, "sec_log: 0x%lx bytes @ 0x%lx kept for last_kmsg\n", Size, Base));
+}
+
+/**
   Return the Virtual Memory Map of your platform.
 **/
 VOID
@@ -175,6 +277,11 @@ ArmPlatformGetVirtualMemoryMap (
   // downstream-kernel boot.
   //
   CarveReservedRange (BOOT_PARAMS_BASE, BOOT_PARAMS_SIZE);
+
+  //
+  // The Samsung kernel's RAM log, if the bootloader configured one.
+  //
+  CarveSecLog ();
 
   VirtualMemoryTable = AllocatePages (
                          EFI_SIZE_TO_PAGES (sizeof (ARM_MEMORY_REGION_DESCRIPTOR) * MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS)
