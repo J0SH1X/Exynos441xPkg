@@ -55,6 +55,140 @@ _Reset:
 	dsb
 	isb
 
+	/*
+	 * Locate the framebuffer THE BOOTLOADER programmed.  We cannot
+	 * know its address from the host (the recovery kernel's
+	 * 0x70C6C000 is a different buffer), so read it out of the FIMD0
+	 * window registers as the BL left them (offsets from the u-boot
+	 * struct exynos_fb):
+	 *
+	 *   WINCON<n>       0x20 + 4n   bit 0 = window enabled
+	 *   vidw00add0b0+n  0xA0 + 8n   buffer start address
+	 *   vidw00add1b0+n  0xD0 + 8n   buffer start + size
+	 *
+	 * The range of the first valid window is kept in r12/r14 and
+	 * handed to the payload in r0/r1 at the jump.
+	 */
+	mov	r12, #0			/* saved fb start (0 = none yet) */
+	ldr	r6, =0x11C00000		/* FIMD0 base */
+	mov	r7, #0			/* window index 0..4 */
+_ScanFbWindow:
+	add	r8, r6, #0x20
+	add	r8, r8, r7, lsl #2	/* WINCON<n> = 0x20 + 4n */
+	ldr	r2, [r8]		/* WINCON<n> */
+	tst	r2, #1			/* ENWIN? */
+	beq	_ScanFbNext
+	/* start addr: vidw00add0b0 + 8n (u-boot struct exynos_fb) */
+	add	r3, r6, #0xA0
+	add	r3, r3, r7, lsl #3
+	ldr	r0, [r3]		/* start */
+	/* end addr: vidw00add1b0 + 8n (u-boot struct exynos_fb) */
+	add	r3, r6, #0xD0
+	add	r3, r3, r7, lsl #3
+	ldr	r1, [r3]		/* end (inclusive) */
+	add	r1, r1, #4
+	/* Sanity: start must point into DRAM (0x40000000..0x80000000) */
+	ldr	r4, =0x40000000
+	cmp	r0, r4
+	blo	_ScanFbNext
+	cmp	r1, r0
+	bls	_ScanFbNext		/* end <= start: nonsense, skip */
+	ldr	r4, =0x80000000
+	cmp	r0, r4
+	bhs	_ScanFbNext
+	cmp	r12, #0			/* remember the first valid window */
+	moveq	r12, r0			/* r12 = fb start */
+	moveq	r14, r1			/* r14 = fb end   */
+_ScanFbNext:
+	add	r7, r7, #1
+	cmp	r7, #5
+	blo	_ScanFbWindow
+
+	/* Stop the Samsung bootloader's software watchdog so slow phases
+	 * (DEBUG builds!) cannot trigger a reset.  Exynos4 watchdog @
+	 * 0x10060000: WTCON bit 5 = 0 disables the watchdog. */
+	ldr	r1, =0x10060000
+	ldr	r0, [r1]
+	bic	r0, r0, #(1 << 5)
+	str	r0, [r1]
+
+	/* Read SCTLR */
+	mrc	p15, 0, r0, c1, c0, 0
+
+	/* If the D-cache was left enabled by the BL, clean+invalidate it
+	 * first (canonical ARMv7 set/way walk, no stack needed). */
+	tst	r0, #(1 << 2)
+	beq	_CacheSkip
+
+	dsb
+	mrc	p15, 1, r0, c0, c0, 1		/* CLIDR */
+	ands	r3, r0, #0x7000000		/* LoC */
+	mov	r3, r3, lsr #23
+	beq	_FlushDone
+	mov	r10, #0			/* cache level 0 */
+_FlushLoop1:
+	add	r2, r10, r10, lsr #1		/* 3 * level */
+	mov	r1, r0, lsr r2
+	and	r1, r1, #7
+	cmp	r1, #2
+	blt	_FlushSkip			/* no D-cache here */
+	mcr	p15, 2, r10, c0, c0, 0		/* CSSELR = level */
+	isb
+	mrc	p15, 1, r1, c0, c0, 0		/* CCSIDR */
+	and	r2, r1, #7			/* line length */
+	add	r2, r2, #4
+	ldr	r4, =0x3ff
+	ands	r4, r4, r1, lsr #3		/* max way */
+	clz	r5, r4				/* way shift */
+	ldr	r7, =0x7fff
+	ands	r7, r7, r1, lsr #13		/* max set */
+_FlushLoop2:
+	mov	r9, r4
+_FlushLoop3:
+	orr	r11, r10, r9, lsl r5
+	orr	r11, r11, r7, lsl r2
+	mcr	p15, 0, r11, c7, c14, 2		/* clean+invalidate set/way */
+	subs	r9, r9, #1
+	bge	_FlushLoop3
+	subs	r7, r7, #1
+	bge	_FlushLoop2
+_FlushSkip:
+	add	r10, r10, #2
+	cmp	r3, r10
+	bgt	_FlushLoop1
+	mov	r10, #0
+	mcr	p15, 2, r10, c0, c0, 0
+	dsb
+_FlushDone:
+
+_CacheSkip:
+	/* Re-read SCTLR (registers were clobbered by the flush) and set up
+	 * a flat, unaligned-tolerant environment: MMU off, D-cache off,
+	 * low vectors, branch prediction + I-cache on. */
+	mrc	p15, 0, r0, c1, c0, 0
+	bic	r0, r0, #(1 << 0)		/* M   - MMU off           */
+	bic	r0, r0, #(1 << 2)		/* C   - D-cache off       */
+	bic	r0, r0, #(1 << 1)		/* A   - alignment off     */
+	bic	r0, r0, #(1 << 13)		/* V   - low vectors       */
+	bic	r0, r0, #(1 << 28)		/* TRE                     */
+	bic	r0, r0, #(1 << 29)		/* AFE                     */
+	orr	r0, r0, #(1 << 12)		/* I   - I-cache on        */
+	orr	r0, r0, #(1 << 11)		/* Z   - branch prediction */
+	mcr	p15, 0, r0, c1, c0, 0
+	isb
+
+	/* Invalidate TLBs, I-cache and BTB */
+	mov	r0, #0
+	mcr	p15, 0, r0, c8, c7, 0		/* TLBIALL   */
+	mcr	p15, 0, r0, c7, c5, 6		/* BPIALL    */
+	mcr	p15, 0, r0, c7, c5, 0		/* ICIALLU   */
+	dsb
+	isb
+
+	/* NOTE: the VFP is deliberately left in whatever state the BL had it.
+	 * PrePi enables CP10/CP11 + FPEXC itself; touching FPEXC here could
+	 * trap to UNDEF if the BL had the coprocessors disabled in CPACR. */
+
 _Relocate:
 	/* r0 = runtime address of the payload, r1 = destination */
 	adr	r0, _Payload
@@ -70,6 +204,11 @@ _CopyLoop:
 	bgt	_CopyLoop
 
 _Entry:
+	/* Pass the framebuffer range to the payload in r0/r1 (PrePi ignores
+	 * r0/r1 and rediscovers the buffer itself; kept for any bare-metal
+	 * payload that wants it). */
+	mov	r0, r12
+	mov	r1, r14
 	ldr	r5, =UEFI_BASE
 	bx	r5
 
