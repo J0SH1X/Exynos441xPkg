@@ -780,6 +780,9 @@ UsbFnTransfer (
   if (!Dev->Started) {
     return EFI_NOT_READY;
   }
+  if ((EndpointIndex != 0) && (Dev->Configuration == 0)) {
+    return EFI_NOT_READY;   // bulk endpoints exist only once the host configured us
+  }
 
   In     = (Direction == EfiUsbEndpointDirectionDeviceTx);
   X      = In ? &Dev->In[EndpointIndex] : &Dev->Out[EndpointIndex];

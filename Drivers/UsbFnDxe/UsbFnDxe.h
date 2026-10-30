@@ -146,10 +146,10 @@
 
 //
 // Bring-up self test (SelfTest.c): the driver starts itself and runs a bulk
-// loopback device.  Set to 0 once a real UsbFn client (KDNET) uses it.
+// loopback device.  Off: UsbLogDxe (and later KDNET) is the client.
 //
 #ifndef USBFN_SELFTEST
-#define USBFN_SELFTEST         1
+#define USBFN_SELFTEST         0
 #endif
 
 #define USBFN_MAX_EPS          4      // EP0 + bulk endpoint numbers 1..3

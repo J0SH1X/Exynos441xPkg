@@ -207,7 +207,8 @@ Dwc2ActivateEndpoints (
     // DxEPCTL would drop EPENA and silently lose a transfer the class
     // driver has already queued.
     //
-    if (MmioRead32 (REG (DOEPCTL (Ep))) & DEPCTL_USBACTEP) {
+    if ((MmioRead32 (REG (DIEPCTL (Ep))) | MmioRead32 (REG (DOEPCTL (Ep)))) &
+        DEPCTL_USBACTEP) {
       MmioOr32 (REG (DIEPCTL (Ep)), DEPCTL_SETD0PID);
       MmioOr32 (REG (DOEPCTL (Ep)), DEPCTL_SETD0PID);
       continue;
