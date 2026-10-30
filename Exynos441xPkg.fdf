@@ -134,6 +134,11 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
+  # GPIO driver: CON/DAT/PULL register banks of the three GPIO controllers.
+  #
+  INF Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf
+
+  #
   # Status code + variables
   #
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
