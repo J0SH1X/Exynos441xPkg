@@ -242,6 +242,13 @@ SdhciSendCmd (
   }
 
   //
+  // Nothing is in flight (both inhibits are clear): drop stale status.  A
+  // leftover XFER_DONE (e.g. from an R1b busy end) would otherwise make the
+  // next write's completion wait return before the data was sent.
+  //
+  MmioWrite32 (Host->Base + SDHCI_INT_STATUS, 0xFFFFFFFFU);
+
+  //
   // ARGUMENT, then COMMAND (write triggers execution).
   //
   MmioWrite32 (Host->Base + SDHCI_ARGUMENT, Arg);
@@ -275,6 +282,18 @@ SdhciSendCmd (
   Status = WaitInt (Host, SDHCI_INT_CMD_DONE);
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  //
+  // R1b without data (CMD7, CMD12 after a write): wait out the card's busy
+  // on DAT0.  The Exynos SDHCI raises no busy-end interrupt (kernel quirk
+  // SDHCI_QUIRK_NO_BUSY_IRQ), but DAT inhibit holds until DAT0 is released.
+  //
+  if ((Flags & HOST_CMD_RESP_BUSY) && !(Flags & HOST_CMD_DATA)) {
+    Status = WaitInhibitClear (Host, SDHCI_DAT_INHIBIT);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   if (Resp != NULL) {
