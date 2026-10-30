@@ -34,6 +34,8 @@
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+  PrintLib
+  XzDecLib
 
 [Protocols]
   gEfiLoadedImageProtocolGuid

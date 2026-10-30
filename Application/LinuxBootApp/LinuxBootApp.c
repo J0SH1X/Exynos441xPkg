@@ -1,7 +1,7 @@
 /** @file
   Boot a downstream ARM Linux zImage (Samsung GT-N7000 kernel) from UEFI.
 
-    LinuxBoot.efi [-c "cmdline"] [-a "text"] [-i \path\initrd] [\path\zImage]
+    LinuxBoot.efi [-r | -n] [-c "cmdline"] [-a "text"] [-i \path\initrd] [\path\zImage]
 
   Searches every FAT file system for the zImage (default \zImage), then
   boots it the way the Samsung bootloader would have: zImage at 0x40008000
@@ -11,8 +11,16 @@
   command line, which carries settings the kernel depends on
   (s3cfb.bootloaderfb, lcdtype, sec_log, ...).  -c replaces the command
   line, -a appends to it.  -i passes an initrd (ATAG_INITRD2) that the
-  kernel unpacks over its built-in initramfs, e.g. the PhilZ resources that
-  Tools/zimage-ramdisk.py pulls out of a dual-ramdisk zImage.
+  kernel unpacks over its built-in initramfs.
+
+  Dual-ramdisk kernels (Samsung/CF-Root style, e.g. PhilZ) are detected from
+  the image itself: a "BOOT_IMAGE_OFFSETS" line after the zImage locates
+  xz'd tar archives for the boot and recovery ramdisks.  Their init would
+  read them back from the KERNEL partition, which holds UEFI here, so the
+  chosen archive is unpacked into a cpio initrd instead.  A real boot archive
+  means a normal boot; a placeholder one (1 block) means a recovery kernel,
+  booted with "bootmode=2" like the Samsung bootloader does.  -r / -n force
+  recovery / normal; -i and -c override the automatic initrd / bootmode.
 
   Loosely after HtcLeoPkg's HtcLeoMenuApp Booter.
 
@@ -29,6 +37,8 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include <Library/PrintLib.h>
+#include <Library/XzDecLib.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/ShellParameters.h>
 #include <Protocol/SimpleFileSystem.h>
@@ -173,6 +183,302 @@ LoadFromAnyVolume (
   }
 
   FreePool (Handles);
+  return Status;
+}
+
+//
+// ---------------------------------------------------------------------------
+// Dual-ramdisk zImages: BOOT_IMAGE_OFFSETS + xz'd tar -> cpio initrd.
+// ---------------------------------------------------------------------------
+//
+
+typedef struct {
+  BOOLEAN  Found;
+  UINTN    BootOffset;      // in 512-byte blocks from the image start
+  UINTN    BootLen;
+  UINTN    RecoveryOffset;
+  UINTN    RecoveryLen;
+} BOOT_IMAGE_OFFSETS;
+
+/**
+  Find and parse "BOOT_IMAGE_OFFSETS<sep>boot_offset=N;boot_len=N;
+  recovery_offset=N;recovery_len=N;" right after the zImage.
+**/
+STATIC
+VOID
+FindBootImageOffsets (
+  IN  CONST UINT8         *Image,
+  IN  UINTN               FileSize,
+  IN  UINTN               KernelSize,
+  OUT BOOT_IMAGE_OFFSETS  *Offsets
+  )
+{
+  STATIC CONST CHAR8  Marker[] = "BOOT_IMAGE_OFFSETS";
+  CONST CHAR8         *P;
+  CONST CHAR8         *End;
+  UINTN               Limit;
+  UINTN               Pos;
+  UINTN               *Field;
+  UINTN               Value;
+
+  ZeroMem (Offsets, sizeof (*Offsets));
+
+  //
+  // The marker sits in the first block after the zImage; search 64 KiB.
+  //
+  Limit = MIN (FileSize, KernelSize + SIZE_64KB);
+  for (Pos = KernelSize; Pos + sizeof (Marker) < Limit; Pos++) {
+    if (CompareMem (Image + Pos, Marker, sizeof (Marker) - 1) == 0) {
+      break;
+    }
+  }
+  if (Pos + sizeof (Marker) >= Limit) {
+    return;
+  }
+
+  P   = (CONST CHAR8 *)Image + Pos + sizeof (Marker) - 1;
+  End = (CONST CHAR8 *)Image + Limit;
+  while ((P < End) && ((*P < ' ') || (*P > '~'))) {
+    P++;                                    // separator byte(s)
+  }
+
+  while ((P < End) && (*P >= ' ') && (*P <= '~')) {
+    if (AsciiStrnCmp (P, "boot_offset=", 12) == 0) {
+      Field = &Offsets->BootOffset;     P += 12;
+    } else if (AsciiStrnCmp (P, "boot_len=", 9) == 0) {
+      Field = &Offsets->BootLen;        P += 9;
+    } else if (AsciiStrnCmp (P, "recovery_offset=", 16) == 0) {
+      Field = &Offsets->RecoveryOffset; P += 16;
+    } else if (AsciiStrnCmp (P, "recovery_len=", 13) == 0) {
+      Field = &Offsets->RecoveryLen;    P += 13;
+    } else {
+      Field = NULL;
+    }
+    for (Value = 0; (P < End) && (*P >= '0') && (*P <= '9'); P++) {
+      Value = Value * 10 + (*P - '0');
+    }
+    if (Field != NULL) {
+      *Field = Value;
+    }
+    while ((P < End) && (*P != ';') && (*P >= ' ') && (*P <= '~')) {
+      P++;
+    }
+    if ((P < End) && (*P == ';')) {
+      P++;
+    }
+  }
+
+  Offsets->Found = (Offsets->RecoveryLen != 0) || (Offsets->BootLen != 0);
+}
+
+STATIC
+UINTN
+TarOctal (
+  IN CONST UINT8  *Field,
+  IN UINTN        Length
+  )
+{
+  UINTN  Value;
+  UINTN  Index;
+
+  Value = 0;
+  for (Index = 0; Index < Length; Index++) {
+    if ((Field[Index] >= '0') && (Field[Index] <= '7')) {
+      Value = Value * 8 + (Field[Index] - '0');
+    } else if (Value != 0) {
+      break;
+    }
+  }
+  return Value;
+}
+
+/**
+  Append one newc entry; Out has room (the caller sized it).
+**/
+STATIC
+UINTN
+CpioEntry (
+  OUT UINT8        *Out,
+  IN  UINT32       Ino,
+  IN  UINT32       Mode,
+  IN  UINT32       Uid,
+  IN  UINT32       Gid,
+  IN  UINT32       Mtime,
+  IN  CONST CHAR8  *Name,
+  IN  CONST VOID   *Data,
+  IN  UINTN        DataSize
+  )
+{
+  UINTN  Used;
+  UINTN  NameSize;
+
+  NameSize = AsciiStrLen (Name) + 1;
+  Used     = AsciiSPrint ((CHAR8 *)Out, 111,
+                          "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+                          Ino, Mode, Uid, Gid, (Mode & 0170000) == 0040000 ? 2 : 1,
+                          Mtime, (UINT32)DataSize, 0, 0, 0, 0, (UINT32)NameSize, 0);
+  CopyMem (Out + Used, Name, NameSize);
+  Used += NameSize;
+  while ((Used & 3) != 0) {
+    Out[Used++] = 0;
+  }
+  if (DataSize != 0) {
+    CopyMem (Out + Used, Data, DataSize);
+    Used += DataSize;
+    while ((Used & 3) != 0) {
+      Out[Used++] = 0;
+    }
+  }
+  return Used;
+}
+
+/**
+  ustar (with GNU long names) -> uncompressed newc cpio, the format the
+  kernel unpacks as an initramfs.  Directories, regular files and symlinks
+  keep their mode and owner; other entry types are skipped.
+**/
+STATIC
+EFI_STATUS
+TarToCpio (
+  IN  CONST UINT8  *Tar,
+  IN  UINTN        TarSize,
+  OUT UINT8        **Cpio,
+  OUT UINTN        *CpioSize,
+  OUT UINTN        *Entries
+  )
+{
+  STATIC CHAR8  Name[512];
+  STATIC CHAR8  LongName[512];
+  CONST UINT8   *Hdr;
+  UINT8         *Out;
+  UINTN         Pos;
+  UINTN         Used;
+  UINTN         Size;
+  UINT32        Mode;
+  UINT32        Ino;
+  CHAR8         Type;
+  CONST CHAR8   *N;
+
+  //
+  // Every tar entry spends >= 512 bytes on its header, a cpio entry < 400
+  // plus the same data, so TarSize + slack always fits.
+  //
+  Out = AllocatePool (TarSize + SIZE_4KB);
+  if (Out == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Used        = 0;
+  Ino         = 0;
+  LongName[0] = '\0';
+  for (Pos = 0; Pos + 512 <= TarSize; Pos += 512 + ALIGN_VALUE (Size, 512)) {
+    Hdr  = Tar + Pos;
+    Size = 0;
+    if (IsZeroBuffer (Hdr, 512)) {
+      break;                                        // end-of-archive blocks
+    }
+    Size = TarOctal (Hdr + 124, 12);
+    Type = (CHAR8)Hdr[156];
+    if (Pos + 512 + Size > TarSize) {
+      FreePool (Out);
+      return EFI_COMPROMISED_DATA;
+    }
+
+    if (Type == 'L') {                              // GNU long name for the next entry
+      AsciiStrnCpyS (LongName, sizeof (LongName), (CONST CHAR8 *)Hdr + 512,
+                     MIN (Size, sizeof (LongName) - 1));
+      continue;
+    }
+
+    if (LongName[0] != '\0') {
+      AsciiStrCpyS (Name, sizeof (Name), LongName);
+      LongName[0] = '\0';
+    } else if ((CompareMem (Hdr + 257, "ustar", 5) == 0) && (Hdr[345] != 0)) {
+      AsciiStrnCpyS (Name, sizeof (Name), (CONST CHAR8 *)Hdr + 345, 155);   // prefix
+      AsciiStrCatS (Name, sizeof (Name), "/");
+      AsciiStrnCatS (Name, sizeof (Name), (CONST CHAR8 *)Hdr, 100);
+    } else {
+      AsciiStrnCpyS (Name, sizeof (Name), (CONST CHAR8 *)Hdr, 100);
+    }
+
+    N = Name;
+    while ((N[0] == '.') && (N[1] == '/')) {
+      N += 2;
+    }
+    while (N[0] == '/') {
+      N++;
+    }
+    Size = (Type == '5') ? 0 : Size;
+    if (N[0] == '\0') {
+      continue;
+    }
+    if (AsciiStrLen (N) > 0 && N[AsciiStrLen (N) - 1] == '/') {
+      ((CHAR8 *)N)[AsciiStrLen (N) - 1] = '\0';
+    }
+
+    Mode = (UINT32)TarOctal (Hdr + 100, 8) & 07777;
+    switch (Type) {
+      case '0':
+      case '\0':
+        Used += CpioEntry (Out + Used, ++Ino, 0100000 | Mode, (UINT32)TarOctal (Hdr + 108, 8),
+                           (UINT32)TarOctal (Hdr + 116, 8), (UINT32)TarOctal (Hdr + 136, 12),
+                           N, Hdr + 512, Size);
+        break;
+      case '5':
+        Used += CpioEntry (Out + Used, ++Ino, 0040000 | Mode, (UINT32)TarOctal (Hdr + 108, 8),
+                           (UINT32)TarOctal (Hdr + 116, 8), (UINT32)TarOctal (Hdr + 136, 12),
+                           N, NULL, 0);
+        break;
+      case '2':
+        Used += CpioEntry (Out + Used, ++Ino, 0120777, (UINT32)TarOctal (Hdr + 108, 8),
+                           (UINT32)TarOctal (Hdr + 116, 8), (UINT32)TarOctal (Hdr + 136, 12),
+                           N, Hdr + 157, AsciiStrnLenS ((CONST CHAR8 *)Hdr + 157, 100));
+        break;
+      default:
+        continue;                                   // hard links, devices, ...
+    }
+  }
+
+  Used     += CpioEntry (Out + Used, 0, 0, 0, 0, 0, "TRAILER!!!", NULL, 0);
+  *Cpio     = Out;
+  *CpioSize = Used;
+  *Entries  = Ino;
+  return EFI_SUCCESS;
+}
+
+/**
+  Unpack one of the image's appended archives into a cpio initrd.
+**/
+STATIC
+EFI_STATUS
+DualRamdiskInitrd (
+  IN  CONST UINT8  *Image,
+  IN  UINTN        FileSize,
+  IN  UINTN        OffsetBlocks,
+  IN  UINTN        LenBlocks,
+  OUT UINT8        **Initrd,
+  OUT UINTN        *InitrdSize
+  )
+{
+  EFI_STATUS  Status;
+  VOID        *Tar;
+  UINTN       TarSize;
+  UINTN       Entries;
+
+  if ((OffsetBlocks * 512 + LenBlocks * 512 > FileSize) || (LenBlocks == 0)) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  Status = XzDecompress (Image + OffsetBlocks * 512, LenBlocks * 512, &Tar, &TarSize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  Status = TarToCpio (Tar, TarSize, Initrd, InitrdSize, &Entries);
+  FreePool (Tar);
+  if (!EFI_ERROR (Status)) {
+    Print (L"LinuxBoot: ramdisk %u bytes xz -> %u bytes tar -> %u bytes cpio (%u entries)\n",
+           LenBlocks * 512, TarSize, *InitrdSize, Entries);
+  }
   return Status;
 }
 
@@ -340,6 +646,10 @@ LinuxBootMain (
   CHAR8                          *Replace;
   CHAR8                          *Append;
   CONST CHAR16                   *InitrdPath;
+  BOOT_IMAGE_OFFSETS             Offsets;
+  INTN                           Force;          // 1 recovery, -1 normal, 0 auto
+  BOOLEAN                        Recovery;
+  CHAR8                          *AutoAppend;
   UINT8                          *Initrd;
   UINTN                          InitrdSize;
   UINT8                          *Image;
@@ -361,6 +671,8 @@ LinuxBootMain (
   InitrdPath = NULL;
   Initrd     = NULL;
   InitrdSize = 0;
+  Force      = 0;
+  AutoAppend = NULL;
 
   if (!EFI_ERROR (gBS->HandleProtocol (ImageHandle, &gEfiShellParametersProtocolGuid,
                                        (VOID **)&Params))) {
@@ -368,6 +680,10 @@ LinuxBootMain (
       if ((StrCmp (Params->Argv[Index], L"-c") == 0) && (Index + 1 < Params->Argc)) {
         Replace = AllocatePool (StrLen (Params->Argv[++Index]) + 1);
         UnicodeStrToAsciiStrS (Params->Argv[Index], Replace, StrLen (Params->Argv[Index]) + 1);
+      } else if (StrCmp (Params->Argv[Index], L"-r") == 0) {
+        Force = 1;
+      } else if (StrCmp (Params->Argv[Index], L"-n") == 0) {
+        Force = -1;
       } else if ((StrCmp (Params->Argv[Index], L"-i") == 0) && (Index + 1 < Params->Argc)) {
         InitrdPath = Params->Argv[++Index];
       } else if ((StrCmp (Params->Argv[Index], L"-a") == 0) && (Index + 1 < Params->Argc)) {
@@ -402,16 +718,57 @@ LinuxBootMain (
     return EFI_BAD_BUFFER_SIZE;
   }
 
+  //
+  // Dual-ramdisk image?  Pick the archive, unpack it, set bootmode.
+  //
+  FindBootImageOffsets (Image, FileSize, KernelSize, &Offsets);
+  if (Offsets.Found) {
+    Recovery = (Force > 0) || ((Force == 0) && (Offsets.BootLen <= 1) && (Offsets.RecoveryLen > 1));
+    Print (L"LinuxBoot: dual-ramdisk image (boot %u, recovery %u blocks): %s boot\n",
+           Offsets.BootLen, Offsets.RecoveryLen, Recovery ? L"recovery" : L"normal");
+
+    if (InitrdPath == NULL) {
+      Status = DualRamdiskInitrd (Image, FileSize,
+                                  Recovery ? Offsets.RecoveryOffset : Offsets.BootOffset,
+                                  Recovery ? Offsets.RecoveryLen : Offsets.BootLen,
+                                  &Initrd, &InitrdSize);
+      if (EFI_ERROR (Status)) {
+        Print (L"LinuxBoot: could not unpack the %s ramdisk - %r\n",
+               Recovery ? L"recovery" : L"boot", Status);
+        return Status;
+      }
+    }
+
+    //
+    // The Samsung bootloader adds bootmode=2 for recovery; -c means the
+    // caller wrote the whole command line.
+    //
+    if (Recovery && (Replace == NULL)) {
+      AutoAppend = AllocatePool (CMDLINE_MAX);
+      if (AutoAppend == NULL) {
+        return EFI_OUT_OF_RESOURCES;
+      }
+      AsciiStrCpyS (AutoAppend, CMDLINE_MAX, "bootmode=2");
+      if (Append != NULL) {
+        AsciiStrCatS (AutoAppend, CMDLINE_MAX, " ");
+        AsciiStrCatS (AutoAppend, CMDLINE_MAX, Append);
+      }
+      Append = AutoAppend;
+    }
+  } else if (Force > 0) {
+    Print (L"LinuxBoot: -r given but %s has no BOOT_IMAGE_OFFSETS; booting it as is\n", Path);
+  }
+
   if (InitrdPath != NULL) {
     Status = LoadFromAnyVolume (InitrdPath, &Initrd, &InitrdSize);
     if (EFI_ERROR (Status)) {
       Print (L"LinuxBoot: initrd %s not found on any FAT volume - %r\n", InitrdPath, Status);
       return Status;
     }
-    if ((InitrdSize == 0) || (InitrdSize > INITRD_MAX)) {
-      Print (L"LinuxBoot: initrd of %u bytes is not usable\n", InitrdSize);
-      return EFI_BAD_BUFFER_SIZE;
-    }
+  }
+  if ((Initrd != NULL) && ((InitrdSize == 0) || (InitrdSize > INITRD_MAX))) {
+    Print (L"LinuxBoot: initrd of %u bytes is not usable\n", InitrdSize);
+    return EFI_BAD_BUFFER_SIZE;
   }
 
   Atags   = AllocatePool (ATAGS_MAX);
