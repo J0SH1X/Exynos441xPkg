@@ -8,7 +8,7 @@
 [Defines]
   INF_VERSION    = 0x00010005
   BASE_NAME      = Exynos441xClockDxe
-  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c004
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c007
   MODULE_TYPE    = DXE_DRIVER
   VERSION_STRING = 1.0
 
