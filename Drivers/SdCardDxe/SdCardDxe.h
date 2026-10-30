@@ -29,7 +29,6 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
-#include <Library/FrameBufferConfigLib.h>
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/TimerLib.h>
@@ -38,6 +37,7 @@
 #include <Protocol/BlockIo.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/ExynosGpio.h>
+#include <Protocol/ExynosI2c.h>
 
 //
 // Host controller register bases (map-exynos4.h).
@@ -59,20 +59,6 @@
 #define SD_CD_GPIO_PIN   4
 
 #define BLOCK_SIZE  512
-
-//
-// Camera aid: ordinary progress lines print immediately (SD_DEBUG).  Terminal
-// lines — the last message of a failed or finished probe — use SD_PAUSE so
-// the final state is held on the screen ~5 s and can be photographed.
-// Debug builds only; the pause is deliberate.
-//
-#define SD_DEBUG(args)        DEBUG (args)
-
-#define SD_PAUSE(args)        \
-  do {                        \
-    DEBUG (args);             \
-    gBS->Stall (5000000);     \
-  } while (0)
 
 //
 // Card types the init layer distinguishes.
@@ -127,6 +113,13 @@ EFI_STATUS
 
 typedef
 EFI_STATUS
+(EFIAPI *MMC_HOST_SET_BUS_WIDTH)(
+  IN MMC_HOST  *Host,
+  IN UINT32    Width
+  );
+
+typedef
+EFI_STATUS
 (EFIAPI *MMC_HOST_XFER_BLOCK)(
   IN MMC_HOST  *Host,
   IN BOOLEAN   Read,
@@ -149,11 +142,13 @@ EFI_STATUS
 struct _MMC_HOST {
   UINT32                 Base;       // MMIO base of the host controller
   UINT32                 MaxClockHz; // max bus clock the host can drive
+  UINT32                 BaseClockHz; // SDHCI: sclk_mmc feeding the divider
   CARD_STATE             Card;
   MMC_HOST_SEND_CMD      SendCmd;
   MMC_HOST_SET_CLOCK     SetClock;
   MMC_HOST_PREPARE_DATA  PrepareData;
   MMC_HOST_XFER_BLOCK    XferBlock;
+  MMC_HOST_SET_BUS_WIDTH SetBusWidth; // optional (NULL: bus stays 1-bit)
 };
 
 //
@@ -188,7 +183,8 @@ EFI_STATUS
 SdhciInit (
   IN MMC_HOST  *Host,
   IN UINT32    Base,
-  IN UINT32    MaxClockHz
+  IN UINT32    MaxClockHz,
+  IN UINT32    BaseClockHz
   );
 
 EFI_STATUS

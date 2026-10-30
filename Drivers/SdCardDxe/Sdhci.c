@@ -42,6 +42,8 @@
 //
 #define SDHCI_CMD_INHIBIT   (1U << 0)
 #define SDHCI_DAT_INHIBIT   (1U << 1)
+#define SDHCI_SPACE_AVAILABLE (1U << 10)  // buffer write enable
+#define SDHCI_DATA_AVAILABLE  (1U << 11)  // buffer read enable
 #define SDHCI_DAT_LVL_MASK  (0x0FU << 20)
 #define SDHCI_DAT_LVL_SHIFT 20
 
@@ -84,6 +86,7 @@
 //
 // TRANSFER_MODE bits.
 //
+#define SDHCI_TRNS_BLK_CNT_EN 0x02
 #define SDHCI_TRNS_READ    0x10
 #define SDHCI_TRNS_MULTI   0x20
 
@@ -97,6 +100,24 @@
 // Exynos4 CONTROL2 (base-clock select).
 //
 #define S3C_SDHCI_CONTROL2         0x80
+#define S3C_SDHCI_CONTROL3         0x84
+
+//
+// CONTROL2 bits the kernel sets for every card (exynos4_setup_sdhci_cfg_card).
+// ENCLKOUTHOLD stops SDCLK while the data buffer is full; without it a slow
+// PIO reader overruns the buffer and a multi-block read stalls mid-way.
+//
+#define S3C_CTRL2_ENSTAASYNCCLR    (1U << 31)
+#define S3C_CTRL2_ENCMDCNFMSK      (1U << 30)
+#define S3C_CTRL2_ENFBCLKRX        (1U << 14)
+#define S3C_CTRL2_ENCLKOUTHOLD     (1U << 8)
+#define S3C_CTRL3_FCSEL_ALL        ((1U << 31) | (1U << 23) | (1U << 15) | (1U << 7))
+
+//
+// Tight polls before falling back to 1 ms stalls (Stall granularity is
+// ~100 us, far longer than one block at speed).
+//
+#define SDHCI_SPIN_POLLS  200000
 #define S3C_CTRL2_SELBASECLK_MASK  (0x3U << 4)
 #define S3C_CTRL2_SELBASECLK_SHIFT 4
 #define S3C_CTRL2_SELBASECLK_SCLK  2   // sclk_mmc from the CMU (clk_type DIV_EXTERNAL)
@@ -123,6 +144,28 @@ WaitInhibitClear (
 }
 
 //
+// CMD/DAT line reset.  Required by the spec after an error, and after an
+// abandoned transfer so the next command is not stuck behind DAT inhibit.
+//
+STATIC
+VOID
+ResetLines (
+  IN MMC_HOST  *Host
+  )
+{
+  UINTN  Retry;
+
+  MmioWrite8 (Host->Base + SDHCI_SOFTWARE_RESET, SDHCI_RST_CMD | SDHCI_RST_DATA);
+  for (Retry = 0; Retry < 1000; Retry++) {
+    if (!(MmioRead8 (Host->Base + SDHCI_SOFTWARE_RESET) &
+          (SDHCI_RST_CMD | SDHCI_RST_DATA))) {
+      break;
+    }
+    gBS->Stall (1000);
+  }
+}
+
+//
 // Poll SDHCI_INT_STATUS for completion (command or transfer), clear it, and
 // surface any error bits.
 //
@@ -134,21 +177,36 @@ WaitInt (
   )
 {
   UINTN  Retry;
+  UINTN  Spin;
   UINT32 Int;
 
+  Spin = 0;
   for (Retry = 0; Retry < 5000; Retry++) {
     Int = MmioRead32 (Host->Base + SDHCI_INT_STATUS);
     if (Int & SDHCI_INT_ERR_MASK) {
       MmioWrite32 (Host->Base + SDHCI_INT_STATUS, Int);
-      SD_DEBUG ((DEBUG_ERROR, "Sdhci: INT error 0x%x\n", Int));
+      DEBUG ((DEBUG_ERROR, "Sdhci: INT error 0x%x CMD=0x%x\n",
+              Int, MmioRead16 (Host->Base + SDHCI_COMMAND)));
+
+      ResetLines (Host);
       return EFI_DEVICE_ERROR;
     }
     if (Int & DoneMask) {
       MmioWrite32 (Host->Base + SDHCI_INT_STATUS, Int & DoneMask);
       return EFI_SUCCESS;
     }
+    if (Spin < SDHCI_SPIN_POLLS) {
+      Spin++;
+      Retry--;
+      continue;
+    }
     gBS->Stall (1000);
   }
+  DEBUG ((DEBUG_ERROR, "Sdhci: wait 0x%x timeout INT=0x%x PRES=0x%x BLKCNT=%u CMD=0x%x\n",
+          DoneMask, Int, MmioRead32 (Host->Base + SDHCI_PRESENT_STATE),
+          MmioRead16 (Host->Base + SDHCI_BLOCK_COUNT),
+          MmioRead16 (Host->Base + SDHCI_COMMAND)));
+  ResetLines (Host);
   return EFI_TIMEOUT;
 }
 
@@ -181,9 +239,16 @@ SdhciSendCmd (
   //
   MmioWrite32 (Host->Base + SDHCI_ARGUMENT, Arg);
 
-  RespCtl = SDHCI_CMD_INDEX;
+  //
+  // CRC check unless the response has none (R3); index check only for
+  // R1/R1b/R6/R7 (kernel MMC_RSP_OPCODE): R2 and R3 carry 111111 there.
+  //
+  RespCtl = 0;
   if (!(Flags & HOST_CMD_NO_CRC)) {
     RespCtl |= SDHCI_CMD_CRC;
+    if (Flags & (HOST_CMD_RESP_SHORT | HOST_CMD_RESP_BUSY)) {
+      RespCtl |= SDHCI_CMD_INDEX;
+    }
   }
   if (Flags & HOST_CMD_RESP_LONG) {
     RespCtl |= SDHCI_CMD_RESP_LONG;
@@ -256,9 +321,13 @@ SdhciSetClock (
   //
   // CAPABILITIES[7:0] = base clock in MHz.
   //
-  BaseClock = (MmioRead32 (Host->Base + SDHCI_CAPABILITIES) & 0xFF) * 1000000U;
+  //
+  // CAPABILITIES[13:8] = base clock in MHz; 0 on Exynos4 (external divider),
+  // so use the sclk_mmc rate the board code programmed.
+  //
+  BaseClock = ((MmioRead32 (Host->Base + SDHCI_CAPABILITIES) >> 8) & 0x3F) * 1000000U;
   if (BaseClock == 0) {
-    BaseClock = 50000000U;  // Exynos4 sclk_mmc default guess
+    BaseClock = Host->BaseClockHz;
   }
 
   //
@@ -312,6 +381,11 @@ SdhciPrepareData (
 {
   UINT16  Mode;
 
+  //
+  // Longest data timeout (TMCLK * 2^27).  The reset value 0 is TMCLK * 2^13,
+  // shorter than an ordinary card's read access time.
+  //
+  MmioWrite8 (Host->Base + SDHCI_TIMEOUT_CONTROL, 0x0E);
   MmioWrite16 (Host->Base + SDHCI_BLOCK_SIZE, (UINT16)BLOCK_SIZE);
   MmioWrite16 (Host->Base + SDHCI_BLOCK_COUNT, (UINT16)BlockCount);
 
@@ -320,7 +394,7 @@ SdhciPrepareData (
     Mode |= SDHCI_TRNS_READ;
   }
   if (BlockCount > 1) {
-    Mode |= SDHCI_TRNS_MULTI;
+    Mode |= SDHCI_TRNS_MULTI | SDHCI_TRNS_BLK_CNT_EN;
   }
   MmioWrite16 (Host->Base + SDHCI_TRANSFER_MODE, Mode);
 
@@ -343,24 +417,51 @@ SdhciXferBlock (
   UINT32  *Ptr;
   UINT32  Words;
   UINT32  Block;
+  UINT32  Mask;
+  UINT32  Int;
+  UINTN   Retry;
 
   Ptr = Buffer;
 
+  //
+  // Gate each block on PRESENT_STATE buffer read/write enable, as Linux's
+  // sdhci_transfer_pio() does.  The controller double-buffers; waiting for
+  // one BUF_RD/BUF_WR interrupt per block loses one when two blocks land
+  // back to back (seen: CMD18 stuck at BLKCNT=29 with no BUF_RD).
+  //
+  Mask = Read ? SDHCI_DATA_AVAILABLE : SDHCI_SPACE_AVAILABLE;
   for (Block = 0; Block < BlockCount; Block++) {
-    if (Read) {
-      EFI_STATUS Status = WaitInt (Host, SDHCI_INT_BUF_RD);
-      if (EFI_ERROR (Status)) {
-        return Status;
+    for (Retry = 0; ; Retry++) {
+      Int = MmioRead32 (Host->Base + SDHCI_INT_STATUS);
+      if (Int & SDHCI_INT_ERR_MASK) {
+        MmioWrite32 (Host->Base + SDHCI_INT_STATUS, Int);
+        DEBUG ((DEBUG_ERROR, "Sdhci: data error 0x%x at block %u/%u\n",
+                Int, Block, BlockCount));
+        ResetLines (Host);
+        return EFI_DEVICE_ERROR;
       }
-      for (Words = 0; Words < (BLOCK_SIZE / 4); Words++) {
+      if (MmioRead32 (Host->Base + SDHCI_PRESENT_STATE) & Mask) {
+        break;
+      }
+      if (Retry < SDHCI_SPIN_POLLS) {
+        continue;
+      }
+      if (Retry >= SDHCI_SPIN_POLLS + 5000) {
+        DEBUG ((DEBUG_ERROR, "Sdhci: buffer wait timeout at block %u/%u INT=0x%x PRES=0x%x BLKCNT=%u\n",
+                Block, BlockCount, Int,
+                MmioRead32 (Host->Base + SDHCI_PRESENT_STATE),
+                MmioRead16 (Host->Base + SDHCI_BLOCK_COUNT)));
+        ResetLines (Host);
+        return EFI_TIMEOUT;
+      }
+      gBS->Stall (1000);
+    }
+
+    MmioWrite32 (Host->Base + SDHCI_INT_STATUS, SDHCI_INT_BUF_RD | SDHCI_INT_BUF_WR);
+    for (Words = 0; Words < (BLOCK_SIZE / 4); Words++) {
+      if (Read) {
         *Ptr++ = MmioRead32 (Host->Base + SDHCI_BUFFER_DATA_PORT);
-      }
-    } else {
-      EFI_STATUS Status = WaitInt (Host, SDHCI_INT_BUF_WR);
-      if (EFI_ERROR (Status)) {
-        return Status;
-      }
-      for (Words = 0; Words < (BLOCK_SIZE / 4); Words++) {
+      } else {
         MmioWrite32 (Host->Base + SDHCI_BUFFER_DATA_PORT, *Ptr++);
       }
     }
@@ -372,6 +473,28 @@ SdhciXferBlock (
   return WaitInt (Host, SDHCI_INT_XFER_DONE);
 }
 
+//
+// Host side of a bus-width switch; the card side (ACMD6) is done by MmcCore.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+SdhciSetBusWidth (
+  IN MMC_HOST  *Host,
+  IN UINT32    Width
+  )
+{
+  UINT8  Ctrl;
+
+  Ctrl = MmioRead8 (Host->Base + SDHCI_HOST_CONTROL);
+  Ctrl &= (UINT8)~(SDHCI_CTRL_4BITBUS | SDHCI_CTRL_8BITBUS);
+  if (Width == 4) {
+    Ctrl |= SDHCI_CTRL_4BITBUS;
+  }
+  MmioWrite8 (Host->Base + SDHCI_HOST_CONTROL, Ctrl);
+  return EFI_SUCCESS;
+}
+
 /**
   Reset and prepare an SDHCI host for card identification.
 
@@ -381,6 +504,7 @@ SdhciXferBlock (
   @param[out] Host       Initialised host (ops + Card zeroed).
   @param[in]  Base       MMIO base of the SDHCI controller.
   @param[in]  MaxClockHz Fastest bus clock to use in the transfer state.
+  @param[in]  BaseClockHz sclk_mmc rate feeding the SDHCI divider.
 
   @retval EFI_SUCCESS  Host ready.
 **/
@@ -388,15 +512,19 @@ EFI_STATUS
 SdhciInit (
   IN MMC_HOST  *Host,
   IN UINT32    Base,
-  IN UINT32    MaxClockHz
+  IN UINT32    MaxClockHz,
+  IN UINT32    BaseClockHz
   )
 {
   EFI_STATUS  Status;
   UINTN       Retry;
+  UINT32      Ctrl2;
 
   ZeroMem (Host, sizeof (*Host));
-  Host->Base       = Base;
-  Host->MaxClockHz = MaxClockHz;
+  Host->Base        = Base;
+  Host->MaxClockHz  = MaxClockHz;
+  Host->BaseClockHz = BaseClockHz;
+  Host->SetBusWidth = SdhciSetBusWidth;
   Host->SendCmd    = SdhciSendCmd;
   Host->SetClock   = SdhciSetClock;
   Host->PrepareData = SdhciPrepareData;
@@ -427,9 +555,11 @@ SdhciInit (
   //
   // Card clock from sclk_mmc (kernel S3C_SDHCI_CLK_DIV_EXTERNAL).
   //
-  MmioAndThenOr32 (Host->Base + S3C_SDHCI_CONTROL2,
-                   ~S3C_CTRL2_SELBASECLK_MASK,
-                   S3C_CTRL2_SELBASECLK_SCLK << S3C_CTRL2_SELBASECLK_SHIFT);
+  Ctrl2 = (S3C_CTRL2_SELBASECLK_SCLK << S3C_CTRL2_SELBASECLK_SHIFT) |
+          S3C_CTRL2_ENSTAASYNCCLR | S3C_CTRL2_ENCMDCNFMSK |
+          S3C_CTRL2_ENFBCLKRX | S3C_CTRL2_ENCLKOUTHOLD;
+  MmioWrite32 (Host->Base + S3C_SDHCI_CONTROL2, Ctrl2);
+  MmioWrite32 (Host->Base + S3C_SDHCI_CONTROL3, S3C_CTRL3_FCSEL_ALL);
 
   //
   // Power on the bus (3.3V).
@@ -449,11 +579,5 @@ SdhciInit (
     return Status;
   }
 
-  SD_DEBUG ((DEBUG_INFO, "Sdhci: host at 0x%x initialised, VER=0x%x CAPS=0x%x CTRL2=0x%x PRES=0x%x\n",
-          Base,
-          MmioRead16 (Host->Base + SDHCI_HOST_VERSION),
-          MmioRead32 (Host->Base + SDHCI_CAPABILITIES),
-          MmioRead32 (Host->Base + S3C_SDHCI_CONTROL2),
-          MmioRead32 (Host->Base + SDHCI_PRESENT_STATE)));
   return EFI_SUCCESS;
 }

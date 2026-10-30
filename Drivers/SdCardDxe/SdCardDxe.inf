@@ -31,7 +31,6 @@
   BaseLib
   BaseMemoryLib
   DebugLib
-  FrameBufferConfigLib
   IoLib
   MemoryAllocationLib
   TimerLib
@@ -42,6 +41,7 @@
   gEfiBlockIoProtocolGuid
   gEfiDevicePathProtocolGuid
   gExynosGpioProtocolGuid
+  gExynosI2cProtocolGuid
 
 [Depex]
   gExynosGpioProtocolGuid

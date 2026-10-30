@@ -160,7 +160,14 @@ MmcSendOpCond (
   UINT32      Resp[4];
   UINTN       Retry;
 
-  for (Retry = 0; Retry < 1000; Retry++) {
+  //
+  // OCR query with argument 0 first, as Linux's mmc_attach_mmc() does.
+  //
+  Status = SendCmd (Host, CMD1_SEND_OP_COND, 0,
+                    HOST_CMD_RESP_SHORT | HOST_CMD_NO_CRC, Resp);
+
+  Resp[0] = 0;
+  for (Retry = 0; Retry < 3000; Retry++) {
     //
     // Sector-mode request plus the voltage window; a CMD1 whose window does
     // not match the card sends it to the inactive state.
@@ -168,6 +175,7 @@ MmcSendOpCond (
     Status = SendCmd (Host, CMD1_SEND_OP_COND, OCR_HCS | OCR_VDD_MMC,
                       HOST_CMD_RESP_SHORT | HOST_CMD_NO_CRC, Resp);
     if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "MmcCore: CMD1 #%u failed - %r\n", Retry, Status));
       return Status;
     }
 
@@ -179,6 +187,8 @@ MmcSendOpCond (
     gBS->Stall (1000);
   }
 
+  DEBUG ((DEBUG_ERROR, "MmcCore: CMD1 card still busy after %u polls, OCR 0x%x\n",
+          Retry, Resp[0]));
   return EFI_TIMEOUT;
 }
 
@@ -229,15 +239,17 @@ ParseCsd (
     //
     // CSD v2.0 (SDHC / SDXC / eMMC >= 2GB): capacity = (C_SIZE+1) * 512KB.
     //
-    CSize = ((Resp[3] & 0x3FU) << 16) | (Resp[2] >> 16);
+    // C_SIZE = CSD[69:48].
+    CSize = ((Resp[2] & 0x3FU) << 16) | (Resp[1] >> 16);
     Blocks = ((UINT64)(CSize + 1)) * 1024;  // in 512-byte units
   } else {
     //
     // CSD v1.0: capacity = (C_SIZE+1) * 2^(C_SIZE_MULT+2) * 2^READ_BL_LEN.
     //
-    ReadBlLen  = (Resp[1] >> 16) & 0xF;
-    CSize      = ((Resp[1] & 0x3U) << 10) | (Resp[0] >> 22);
-    CSizeMult  = (Resp[0] >> 15) & 0x7;
+    // READ_BL_LEN = CSD[83:80], C_SIZE = CSD[73:62], C_SIZE_MULT = CSD[49:47].
+    ReadBlLen  = (Resp[2] >> 16) & 0xF;
+    CSize      = ((Resp[2] & 0x3FFU) << 2) | (Resp[1] >> 30);
+    CSizeMult  = (Resp[1] >> 15) & 0x7;
     Mult       = 1U << (CSizeMult + 2);
     Blocks     = ((UINT64)(CSize + 1)) * Mult;
     Blocks <<= ReadBlLen;
@@ -245,8 +257,6 @@ ParseCsd (
   }
 
   Host->Card.BlockCount = Blocks;
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: CSD v%u capacity %lu blocks\n",
-          CsdStruct, Host->Card.BlockCount));
   return EFI_SUCCESS;
 }
 
@@ -282,8 +292,6 @@ MmcReadExtCsd (
              ((UINT32)ExtCsd[EXT_CSD_SEC_COUNT + 1] << 8) |
              ((UINT32)ExtCsd[EXT_CSD_SEC_COUNT + 2] << 16) |
              ((UINT32)ExtCsd[EXT_CSD_SEC_COUNT + 3] << 24);
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: EXT_CSD rev %u SEC_COUNT %u\n",
-          ExtCsd[192], SecCount));
   if (SecCount == 0) {
     return EFI_DEVICE_ERROR;
   }
@@ -293,28 +301,64 @@ MmcReadExtCsd (
 }
 
 //
-// Set the bus width for SD via ACMD6 (2 or 4 bits).
+// SD bus modes, fastest first.  Each is proven with a single-block read of
+// LBA 0 before it is kept; the slower ones exist because 4-bit at 12.5 MHz
+// returned data CRC errors on the first try.
 //
+STATIC CONST struct {
+  UINT32  Width;
+  UINT32  ClockHz;
+} mSdBusModes[] = {
+  { 4, MMC_TRANSFER_CLOCK_HZ },
+  { 1, MMC_TRANSFER_CLOCK_HZ },
+  { 4, 3000000 },
+  { 1, 3000000 },
+};
+
 STATIC
 EFI_STATUS
-SdSetBusWidth4 (
+SdTuneBus (
   IN MMC_HOST  *Host
   )
 {
-  EFI_STATUS  Status;
-  UINT32      Resp[4];
+  EFI_STATUS    Status;
+  UINT32        Resp[4];
+  UINTN         Index;
+  STATIC UINT8  Block[BLOCK_SIZE];
 
-  Status = SendCmd (Host, CMD55_APP_CMD, (UINT32)Host->Card.Rca << 16,
-                    HOST_CMD_RESP_SHORT, Resp);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  for (Index = 0; Index < ARRAY_SIZE (mSdBusModes); Index++) {
+    //
+    // Card side first (ACMD6: 0 = 1-bit, 2 = 4-bit), then the host.
+    //
+    Status = SendCmd (Host, CMD55_APP_CMD, (UINT32)Host->Card.Rca << 16,
+                      HOST_CMD_RESP_SHORT, Resp);
+    if (!EFI_ERROR (Status)) {
+      Status = SendCmd (Host, ACMD6_SET_BUS_WIDTH,
+                        (mSdBusModes[Index].Width == 4) ? 0x2 : 0x0,
+                        HOST_CMD_RESP_SHORT, Resp);
+    }
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "MmcCore: ACMD6 %u-bit failed - %r\n",
+              mSdBusModes[Index].Width, Status));
+      continue;
+    }
+    Host->SetBusWidth (Host, mSdBusModes[Index].Width);
+
+    Status = Host->SetClock (Host, MIN (Host->MaxClockHz, mSdBusModes[Index].ClockHz));
+    if (!EFI_ERROR (Status)) {
+      Status = MmcReadBlocks (Host, 0, 1, Block);
+    }
+
+    DEBUG ((EFI_ERROR (Status) ? DEBUG_ERROR : DEBUG_INFO,
+            "MmcCore: SD %u-bit @ %u Hz: %r (sig 0x%02x%02x)\n",
+            mSdBusModes[Index].Width, mSdBusModes[Index].ClockHz, Status,
+            Block[510], Block[511]));
+    if (!EFI_ERROR (Status)) {
+      return EFI_SUCCESS;
+    }
   }
 
-  //
-  // ACMD6 argument: 0x2 = 4-bit bus.
-  //
-  return SendCmd (Host, ACMD6_SET_BUS_WIDTH, 0x2,
-                  HOST_CMD_RESP_SHORT, Resp);
+  return EFI_DEVICE_ERROR;
 }
 
 /**
@@ -341,8 +385,6 @@ MmcInitCard (
   Host->Card.BlockSize   = BLOCK_SIZE;
   Host->Card.HighCapacity = FALSE;
 
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: init (%a) on 0x%x\n",
-          IsEmmc ? "eMMC" : "SD", Host->Base));
 
   //
   // CMD0: go idle.  No response.
@@ -350,43 +392,37 @@ MmcInitCard (
   Status = SendCmd (Host, CMD0_GO_IDLE, 0,
                     HOST_CMD_RESP_NONE | HOST_CMD_NO_CRC, NULL);
   if (EFI_ERROR (Status)) {
-    SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD0 failed - %r\n", Status));
+    DEBUG ((DEBUG_ERROR, "MmcCore: CMD0 failed - %r\n", Status));
     return Status;
   }
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD0 ok\n"));
 
   if (IsEmmc) {
     Host->Card.Type = CardTypeMmc;
 
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD1 op-cond poll...\n"));
     Status = MmcSendOpCond (Host, &Ocr);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD1 timeout\n"));
+      DEBUG ((DEBUG_ERROR, "MmcCore: CMD1 timeout\n"));
       return Status;
     }
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD1 ok, OCR 0x%x\n", Ocr));
   } else {
     Host->Card.Type = CardTypeSd;
 
     SdCheckInterfaceCond (Host, &V2);
 
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: ACMD41 op-cond poll...\n"));
     Status = SdSendOpCond (Host, V2, &Ocr);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: ACMD41 timeout\n"));
+      DEBUG ((DEBUG_ERROR, "MmcCore: ACMD41 timeout\n"));
       return EFI_NO_MEDIA;
     }
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: ACMD41 ok, OCR 0x%x\n", Ocr));
   }
 
   Host->Card.HighCapacity = (Ocr & OCR_CCS) != 0;
 
   Status = SendAllSendCid (Host);
   if (EFI_ERROR (Status)) {
-    SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD2 failed - %r\n", Status));
+    DEBUG ((DEBUG_ERROR, "MmcCore: CMD2 failed - %r\n", Status));
     return Status;
   }
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD2 ok\n"));
 
   //
   // CMD3: SD publishes its own RCA in the response; for MMC the host assigns
@@ -399,11 +435,10 @@ MmcInitCard (
     Arg = (Host->Card.Type == CardTypeMmc) ? (1U << 16) : 0;
     Status = SendCmd (Host, CMD3_SEND_RCA, Arg, HOST_CMD_RESP_SHORT, Resp);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD3 failed - %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "MmcCore: CMD3 failed - %r\n", Status));
       return Status;
     }
     Host->Card.Rca = (Host->Card.Type == CardTypeMmc) ? 1 : (UINT16)(Resp[0] >> 16);
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD3 ok, RCA 0x%x\n", Host->Card.Rca));
   }
 
   //
@@ -411,7 +446,7 @@ MmcInitCard (
   //
   Status = ParseCsd (Host, Host->Card.Type);
   if (EFI_ERROR (Status)) {
-    SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD9 failed - %r\n", Status));
+    DEBUG ((DEBUG_ERROR, "MmcCore: CMD9 failed - %r\n", Status));
     return Status;
   }
 
@@ -424,10 +459,9 @@ MmcInitCard (
     Status = SendCmd (Host, CMD7_SELECT, (UINT32)Host->Card.Rca << 16,
                       HOST_CMD_RESP_BUSY, Resp);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD7 failed - %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "MmcCore: CMD7 failed - %r\n", Status));
       return Status;
     }
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD7 ok\n"));
   }
 
   //
@@ -438,7 +472,7 @@ MmcInitCard (
   if ((Host->Card.Type == CardTypeMmc) && Host->Card.HighCapacity) {
     Status = MmcReadExtCsd (Host);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: EXT_CSD read failed - %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "MmcCore: EXT_CSD read failed - %r\n", Status));
       return Status;
     }
   }
@@ -452,40 +486,88 @@ MmcInitCard (
     Status = SendCmd (Host, CMD16_SET_BLOCKLEN, BLOCK_SIZE,
                       HOST_CMD_RESP_SHORT, Resp);
     if (EFI_ERROR (Status)) {
-      SD_DEBUG ((DEBUG_ERROR, "MmcCore: CMD16 failed - %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "MmcCore: CMD16 failed - %r\n", Status));
       return Status;
     }
-    SD_DEBUG ((DEBUG_INFO, "MmcCore: CMD16 ok\n"));
   }
 
-  //
-  // SD only: widen the bus to 4 bits for faster transfers.
-  //
-  if (Host->Card.Type == CardTypeSd) {
-    Status = SdSetBusWidth4 (Host);
+  if ((Host->Card.Type == CardTypeSd) && (Host->SetBusWidth != NULL)) {
+    //
+    // SD: pick the fastest bus mode that reads block 0 cleanly.
+    //
+    Status = SdTuneBus (Host);
     if (EFI_ERROR (Status)) {
-      //
-      // Not fatal: fall back to 1-bit.
-      //
-      SD_DEBUG ((DEBUG_WARN, "MmcCore: 4-bit switch failed, staying at 1-bit\n"));
+      return Status;
+    }
+  } else {
+    //
+    // eMMC stays 1-bit until the MSHCI backend gets the CMD6 switch.
+    //
+    Status = Host->SetClock (Host, MIN (Host->MaxClockHz, MMC_TRANSFER_CLOCK_HZ));
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
   }
 
-  //
-  // Raise the bus clock now that the card is in the transfer state.
-  //
-  SD_DEBUG ((DEBUG_INFO, "MmcCore: raising bus clock to %u Hz\n",
-          MIN (Host->MaxClockHz, MMC_TRANSFER_CLOCK_HZ)));
-  Status = Host->SetClock (Host, MIN (Host->MaxClockHz, MMC_TRANSFER_CLOCK_HZ));
-  if (EFI_ERROR (Status)) {
-    return Status;
+  return EFI_SUCCESS;
+}
+
+//
+// After a failed data phase, a multi-block command leaves the card in the
+// data/receive state and every following command times out.  CMD12 brings
+// it back to transfer state; the result is irrelevant.
+//
+STATIC
+VOID
+MmcAbortData (
+  IN MMC_HOST  *Host,
+  IN UINT32    Chunk
+  )
+{
+  UINT32  Resp[4];
+
+  if (Chunk > 1) {
+    SendCmd (Host, CMD12_STOP, 0, HOST_CMD_RESP_BUSY, Resp);
+  }
+}
+
+//
+// Fallback after a failed multi-block command: CMD17/CMD24 per block.
+//
+STATIC
+EFI_STATUS
+MmcXferSingles (
+  IN     MMC_HOST  *Host,
+  IN     BOOLEAN   Read,
+  IN     UINT32    Addr,
+  IN     UINT32    Count,
+  IN OUT UINT8     *Ptr
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Resp[4];
+  UINT32      Index;
+
+  for (Index = 0; Index < Count; Index++) {
+    Status = Host->PrepareData (Host, Read, 1);
+    if (!EFI_ERROR (Status)) {
+      Status = SendCmd (Host, Read ? CMD17_READ_SINGLE : CMD24_WRITE_SINGLE, Addr,
+                        HOST_CMD_RESP_SHORT | HOST_CMD_DATA |
+                        (Read ? 0 : HOST_CMD_WRITE), Resp);
+    }
+    if (!EFI_ERROR (Status)) {
+      Status = Host->XferBlock (Host, Read, 1, Ptr);
+    }
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "MmcCore: 0x%x single-block addr 0x%x failed - %r\n",
+              Host->Base, Addr, Status));
+      return Status;
+    }
+
+    Ptr  += BLOCK_SIZE;
+    Addr += Host->Card.HighCapacity ? 1 : Host->Card.BlockSize;
   }
 
-  SD_DEBUG ((DEBUG_INFO,
-          "MmcCore: card up (RCA 0x%x, %a, %lu blocks of %u bytes)\n",
-          Host->Card.Rca,
-          Host->Card.HighCapacity ? "high-cap" : "byte-addr",
-          Host->Card.BlockCount, Host->Card.BlockSize));
   return EFI_SUCCESS;
 }
 
@@ -559,7 +641,24 @@ MmcReadBlocks (
 
     Status = Host->XferBlock (Host, TRUE, Chunk, Ptr);
     if (EFI_ERROR (Status)) {
-      return Status;
+      DEBUG ((DEBUG_ERROR, "MmcCore: 0x%x read LBA %lu x%u failed - %r\n",
+              Host->Base, Lba + (Blocks - Remaining), Chunk, Status));
+      MmcAbortData (Host, Chunk);
+      if (Chunk == 1) {
+        return Status;
+      }
+
+      //
+      // Multi-block failed: redo this chunk one block at a time.
+      //
+      Status = MmcXferSingles (Host, TRUE, Addr, Chunk, Ptr);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+      Ptr        += Chunk * BLOCK_SIZE;
+      Remaining  -= Chunk;
+      Addr       += Host->Card.HighCapacity ? Chunk : Chunk * Host->Card.BlockSize;
+      continue;
     }
 
     if (Chunk > 1) {
@@ -640,7 +739,24 @@ MmcWriteBlocks (
 
     Status = Host->XferBlock (Host, FALSE, Chunk, Ptr);
     if (EFI_ERROR (Status)) {
-      return Status;
+      DEBUG ((DEBUG_ERROR, "MmcCore: 0x%x write LBA %lu x%u failed - %r\n",
+              Host->Base, Lba + (Blocks - Remaining), Chunk, Status));
+      MmcAbortData (Host, Chunk);
+      if (Chunk == 1) {
+        return Status;
+      }
+
+      //
+      // Multi-block failed: redo this chunk one block at a time.
+      //
+      Status = MmcXferSingles (Host, FALSE, Addr, Chunk, Ptr);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+      Ptr        += Chunk * BLOCK_SIZE;
+      Remaining  -= Chunk;
+      Addr       += Host->Card.HighCapacity ? Chunk : Chunk * Host->Card.BlockSize;
+      continue;
     }
 
     if (Chunk > 1) {

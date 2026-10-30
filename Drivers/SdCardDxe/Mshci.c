@@ -133,7 +133,7 @@ MshciSendCmd (
     gBS->Stall (1000);
   }
   if (MmioRead32 (Host->Base + MSHCI_CMD) & CMD_START) {
-    SD_DEBUG ((DEBUG_ERROR, "Mshci: CMD_START never released\n"));
+    DEBUG ((DEBUG_ERROR, "Mshci: CMD_START never released\n"));
     return EFI_TIMEOUT;
   }
 
@@ -189,7 +189,7 @@ MshciSendCmd (
     Int = MmioRead32 (Host->Base + MSHCI_RINTSTS);
     if (Int & INTMSK_ERR) {
       MmioWrite32 (Host->Base + MSHCI_RINTSTS, Int);
-      SD_DEBUG ((DEBUG_ERROR, "Mshci: cmd %u INT error 0x%x CMD=0x%x STATUS=0x%x\n",
+      DEBUG ((DEBUG_ERROR, "Mshci: cmd %u INT error 0x%x CMD=0x%x STATUS=0x%x\n",
               Cmd, Int, CmdReg, MmioRead32 (Host->Base + MSHCI_STATUS)));
       return EFI_DEVICE_ERROR;
     }
@@ -200,26 +200,9 @@ MshciSendCmd (
     gBS->Stall (1000);
   }
 
-  //
-  // No CDONE within ~5 s: dump the CIU state so the stall point is visible.
-  // Two paused lines (camera aid): command/interrupt state first, then the
-  // clock/data-path registers plus the FSM encoding from STATUS[7:4].
-  //
-  SD_DEBUG ((DEBUG_ERROR,
-          "Mshci: cmd %u stuck. CMD=0x%x RINTSTS=0x%x MINTSTS=0x%x STATUS=0x%x\n",
-          Cmd,
-          MmioRead32 (Host->Base + MSHCI_CMD),
-          MmioRead32 (Host->Base + MSHCI_RINTSTS),
-          MmioRead32 (Host->Base + MSHCI_MINTSTS),
+  DEBUG ((DEBUG_ERROR, "Mshci: cmd %u no CDONE, RINTSTS=0x%x STATUS=0x%x\n",
+          Cmd, MmioRead32 (Host->Base + MSHCI_RINTSTS),
           MmioRead32 (Host->Base + MSHCI_STATUS)));
-  SD_DEBUG ((DEBUG_ERROR,
-          "Mshci: clk TMOUT=0x%x CLKSRC=0x%x CTYPE=0x%x UHS=0x%x PWREN=0x%x FSM=%u\n",
-          MmioRead32 (Host->Base + MSHCI_TMOUT),
-          MmioRead32 (Host->Base + MSHCI_CLKSRC),
-          MmioRead32 (Host->Base + MSHCI_CTYPE),
-          MmioRead32 (Host->Base + MSHCI_UHS_REG),
-          MmioRead32 (Host->Base + MSHCI_PWREN),
-          (MmioRead32 (Host->Base + MSHCI_STATUS) >> 4) & 0xF));
   return EFI_TIMEOUT;
 
 CommandDone:
@@ -301,7 +284,7 @@ MshciSetClock (
     gBS->Stall (1000);
   }
 
-  SD_DEBUG ((DEBUG_ERROR, "Mshci: clock update never completed\n"));
+  DEBUG ((DEBUG_ERROR, "Mshci: clock update never completed\n"));
   return EFI_TIMEOUT;
 }
 
@@ -374,7 +357,7 @@ MshciXferBlock (
     Int = MmioRead32 (Host->Base + MSHCI_RINTSTS);
     if (Int & INTMSK_ERR) {
       MmioWrite32 (Host->Base + MSHCI_RINTSTS, Int);
-      SD_DEBUG ((DEBUG_ERROR, "Mshci: data error 0x%x after %u words\n", Int, Words));
+      DEBUG ((DEBUG_ERROR, "Mshci: data error 0x%x after %u words\n", Int, Words));
       return EFI_DEVICE_ERROR;
     }
 
@@ -384,7 +367,7 @@ MshciXferBlock (
     }
     if (Count == 0) {
       if (++Retry >= 5000) {
-        SD_DEBUG ((DEBUG_ERROR, "Mshci: FIFO stalled after %u words, RINTSTS=0x%x\n",
+        DEBUG ((DEBUG_ERROR, "Mshci: FIFO stalled after %u words, RINTSTS=0x%x\n",
                 Words, Int));
         return EFI_TIMEOUT;
       }
@@ -448,11 +431,6 @@ MshciInit (
   Host->PrepareData = MshciPrepareData;
   Host->XferBlock  = MshciXferBlock;
 
-  SD_DEBUG ((DEBUG_INFO, "Mshci: entry CTRL=0x%x STATUS=0x%x RINTSTS=0x%x CLKDIV=%u\n",
-          MmioRead32 (Host->Base + MSHCI_CTRL),
-          MmioRead32 (Host->Base + MSHCI_STATUS),
-          MmioRead32 (Host->Base + MSHCI_RINTSTS),
-          MmioRead32 (Host->Base + MSHCI_CLKDIV)));
 
   //
   // Controller, FIFO and DMA reset (the bootloader leaves IDMAC state and
@@ -466,7 +444,7 @@ MshciInit (
     gBS->Stall (1000);
   }
   if (MmioRead32 (Host->Base + MSHCI_CTRL) & MSHCI_CTRL_ALL_RESET) {
-    SD_DEBUG ((DEBUG_ERROR, "Mshci: reset stuck, CTRL=0x%x\n",
+    DEBUG ((DEBUG_ERROR, "Mshci: reset stuck, CTRL=0x%x\n",
             MmioRead32 (Host->Base + MSHCI_CTRL)));
     return EFI_TIMEOUT;
   }
@@ -501,19 +479,5 @@ MshciInit (
     return Status;
   }
 
-  //
-  // Controller identity + clock state, for the camera log.
-  //
-  SD_DEBUG ((DEBUG_INFO,
-          "Mshci: USRID=0x%x VERID=0x%x HCON=0x%x CTRL=0x%x CLKDIV=%u CLKENA=0x%x STATUS=0x%x\n",
-          MmioRead32 (Host->Base + MSHCI_USRID),
-          MmioRead32 (Host->Base + MSHCI_VERID),
-          MmioRead32 (Host->Base + MSHCI_HCON),
-          MmioRead32 (Host->Base + MSHCI_CTRL),
-          MmioRead32 (Host->Base + MSHCI_CLKDIV),
-          MmioRead32 (Host->Base + MSHCI_CLKENA),
-          MmioRead32 (Host->Base + MSHCI_STATUS)));
-
-  SD_DEBUG ((DEBUG_INFO, "Mshci: host at 0x%x initialised\n", Base));
   return EFI_SUCCESS;
 }
