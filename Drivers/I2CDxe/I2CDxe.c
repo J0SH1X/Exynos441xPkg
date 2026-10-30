@@ -44,7 +44,7 @@
 #define IICSTAT_MODE_TX   (3u << 6)  // master transmit
 #define IICSTAT_START     (1u << 5)  // generate (repeated) start / stop
 #define IICSTAT_TXRXEN    (1u << 4)  // Tx/Rx enable
-#define IICSTAT_BSY       (1u << 7)  // bus busy
+#define IICSTAT_BSY       (1u << 5)  // read: bus busy (write: START/STOP)
 #define IICSTAT_NACK      (1u << 0)  // last bit received was NACK
 
 //
@@ -168,15 +168,20 @@ I2cDoMsg (
   MmioWrite32 (Base + IICCON_OFFSET,
                MmioRead32 (Base + IICCON_OFFSET) | IICCON_ACKEN);
 
-  if (Seq) {
-    I2cNextByte (Base);
-  }
-
-  // Get the slave address going
+  // Get the slave address going.  On a repeated start the previous byte's
+  // pend bit is still set and holds SCL low; clear it only after START is
+  // armed (kernel s3c24xx_i2c_message_start + irq out_ack), otherwise the
+  // controller clocks out IICDS as data instead of restarting.
+  MmioWrite32 (Base + IICSTAT_OFFSET,
+               IICSTAT_TXRXEN | (IsRead ? IICSTAT_MODE_RX : IICSTAT_MODE_TX));
   MmioWrite32 (Base + IICDS_OFFSET, (Chip << 1) | (IsRead ? 1 : 0));
+  MicroSecondDelay (1);
   MmioWrite32 (Base + IICSTAT_OFFSET,
                IICSTAT_TXRXEN | IICSTAT_START |
                (IsRead ? IICSTAT_MODE_RX : IICSTAT_MODE_TX));
+  if (Seq) {
+    I2cNextByte (Base);
+  }
 
   Ret = I2cWaitXfer (Base);
   if (Ret != 0) {
@@ -236,6 +241,8 @@ I2cXfer (
   // Wait for the bus to be free
   for (Tries = 0; MmioRead32 (Base + IICSTAT_OFFSET) & IICSTAT_BSY; Tries++) {
     if (Tries >= I2C_TIMEOUT_US) {
+      DEBUG ((DEBUG_ERROR, "I2c%u: bus busy, IICSTAT=0x%x\n",
+              Bus, MmioRead32 (Base + IICSTAT_OFFSET)));
       return -1;
     }
 
@@ -246,9 +253,18 @@ I2cXfer (
     Ret = I2cDoMsg (Base, Msgs[Index].Addr, &Msgs[Index], Index != 0);
   }
 
-  // STOP
-  MmioWrite32 (Base + IICSTAT_OFFSET, IICSTAT_MODE_RX | IICSTAT_TXRXEN);
+  // STOP: same mode as the last message, START bit cleared
+  MmioWrite32 (Base + IICSTAT_OFFSET,
+               IICSTAT_TXRXEN |
+               ((Msgs[Index - 1].Flags & I2C_M_RD) ? IICSTAT_MODE_RX : IICSTAT_MODE_TX));
   I2cNextByte (Base);
+
+  if (Ret != 0) {
+    DEBUG ((DEBUG_ERROR, "I2c%u: chip 0x%x msg %d %a, IICSTAT=0x%x IICCON=0x%x\n",
+            Bus, Msgs[Index - 1].Addr, Index - 1,
+            (Ret == 1) ? "NACK" : "timeout",
+            MmioRead32 (Base + IICSTAT_OFFSET), MmioRead32 (Base + IICCON_OFFSET)));
+  }
 
   return (Ret == 0) ? Num : -1;
 }
