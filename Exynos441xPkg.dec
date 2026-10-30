@@ -16,6 +16,10 @@
 [Includes.common]
   Include
 
+[LibraryClasses.common]
+  ##  @libraryclass  Decompress .xz streams (XZ Embedded).
+  XzDecLib|Include/Library/XzDecLib.h
+
 [Guids.common]
   gExynos441xPkgTokenSpaceGuid   = { 0x7f1c441a, 0x5b2e, 0x4d18, { 0xa3, 0xc7, 0x91, 0x6e, 0x42, 0xf0, 0x88, 0x11 } }
 

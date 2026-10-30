@@ -1,0 +1,34 @@
+#
+#  .xz decompression for UEFI: XZ Embedded (public domain, Lasse Collin) from
+#  the kernel's lib/xz, LZMA2 stream decoder only, behind XzDecompress().
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = XzDecLib
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c00c
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = XzDecLib
+
+[Sources]
+  XzDecLib.c
+  xz_crc32.c
+  xz_dec_lzma2.c
+  xz_dec_stream.c
+  xz_config.h
+  xz_uefi_types.h
+  xz.h
+  xz_lzma2.h
+  xz_private.h
+  xz_stream.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Exynos441xPkg/Exynos441xPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  MemoryAllocationLib

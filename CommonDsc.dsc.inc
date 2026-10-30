@@ -13,6 +13,7 @@
 
 [LibraryClasses.common]
   DebugLib|MdePkg/Library/BaseDebugLibSerialPort/BaseDebugLibSerialPort.inf
+  XzDecLib|Exynos441xPkg/Library/XzDecLib/XzDecLib.inf
   DebugPrintErrorLevelLib|MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf
 
   # Where DEBUG() output goes.  Milestone 1 wants text on the screen, so the
