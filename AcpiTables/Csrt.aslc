@@ -1,0 +1,67 @@
+/** @file
+  Core System Resource Table: the resource groups Windows loads HAL
+  extensions for.
+
+  One group, VendorId 'SAMS' / DeviceId 0x4210, for the MCT timer extension
+  (NtHalExts halextmct).  Windows looks the extension up in
+  HKLM\SYSTEM\CurrentControlSet\Control\OSExtensionDatabase\VEN_SAMS&DEV_4210
+  (value HALExtension = "halextmct.dll").  The extension knows the MCT's
+  address and interrupt itself, so the group carries no descriptors.
+
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+**/
+
+#include <Library/AcpiLib.h>
+#include "Platform.h"
+
+#define EFI_ACPI_CSRT_REVISION  0
+
+#pragma pack (1)
+//
+// Microsoft CSRT specification; same layout as CSRT_RESOURCE_GROUP_HEADER
+// in the Windows DDK acpitabl.h.
+//
+typedef struct {
+  UINT32  Length;
+  UINT32  VendorId;
+  UINT32  SubvendorId;
+  UINT16  DeviceId;
+  UINT16  SubdeviceId;
+  UINT16  Revision;
+  UINT16  Reserved;
+  UINT32  SharedInfoLength;
+} EXYNOS_CSRT_RESOURCE_GROUP_HEADER;
+
+typedef struct {
+  EFI_ACPI_DESCRIPTION_HEADER        Header;
+  EXYNOS_CSRT_RESOURCE_GROUP_HEADER  MctTimer;
+} EXYNOS_CSRT;
+#pragma pack ()
+
+EXYNOS_CSRT  Csrt = {
+  EXYNOS_ACPI_HEADER (EFI_ACPI_5_0_CORE_SYSTEM_RESOURCE_TABLE_SIGNATURE,
+                      EXYNOS_CSRT,
+                      EFI_ACPI_CSRT_REVISION),
+  {
+    sizeof (EXYNOS_CSRT_RESOURCE_GROUP_HEADER),
+    SIGNATURE_32 ('S', 'A', 'M', 'S'),      // VendorId
+    0,                                      // SubvendorId
+    0x4210,                                 // DeviceId
+    0,                                      // SubdeviceId
+    0,                                      // Revision
+    0,                                      // Reserved
+    0                                       // SharedInfoLength
+  }
+};
+
+//
+// Linker entry point.  A function, not a pointer variable: a pointer would be
+// placed in the data section ahead of the table and GenFw would emit it too.
+//
+VOID *
+ReferenceAcpiTable (
+  VOID
+  )
+{
+  return &Csrt;
+}

@@ -1,8 +1,8 @@
 #
-#  Minimal ACPI tables for the GT-N7000 (Exynos4210): FADT, MADT, DSDT and a
-#  DBG2 entry for KDNET over USB.  Built like HtcLeoPkg's QSD8250Pkg
-#  AcpiTables (RuleOverride = ACPITABLE in the FDF); AcpiPlatformDxe
-#  installs every table it finds in this file.
+#  Minimal ACPI tables for the GT-N7000 (Exynos4210): FADT, MADT, DSDT, a
+#  CSRT for the MCT timer HAL extension and a DBG2 entry for KDNET over USB.
+#  Built like HtcLeoPkg's QSD8250Pkg AcpiTables (RuleOverride = ACPITABLE in
+#  the FDF); AcpiPlatformDxe installs every table it finds in this file.
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
@@ -20,6 +20,7 @@
   Fadt.aslc
   Madt.aslc
   Dbg2.aslc
+  Csrt.aslc
   Platform.h
 
 [Packages]
