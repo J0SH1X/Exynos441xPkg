@@ -26,6 +26,11 @@
   DEFINE USE_UART_FOR_SERIAL_OUTPUT = 0
   DEFINE USE_SCREEN_FOR_SERIAL_OUTPUT = 1
 
+  # UsbLogDxe (log streaming + usbdbg.py) owns EFI_USBFN_IO_PROTOCOL.  Off for
+  # KDNET, whose boot-manager transport needs the controller for itself
+  # (build.sh --kdnet).
+  DEFINE USB_LOG = TRUE
+
 !include Exynos441xPkg/CommonDsc.dsc.inc
 
 ################################################################################
@@ -142,7 +147,9 @@
   # USB peripheral (device mode only): EFI_USBFN_IO_PROTOCOL for KDNET.
   #
   Exynos441xPkg/Drivers/UsbFnDxe/UsbFnDxe.inf
+!if $(USB_LOG) == TRUE
   Exynos441xPkg/Drivers/UsbLogDxe/UsbLogDxe.inf
+!endif
 
   #
   # ACPI: minimal FADT/MADT/DSDT + DBG2 (KDNET over USB) for Windows.

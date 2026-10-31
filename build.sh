@@ -10,6 +10,7 @@
 #  Usage:
 #    ./build.sh              # DEBUG build, output on the framebuffer
 #    ./build.sh --uart       # DEBUG build, output on UART0 (115200 8N1)
+#    ./build.sh --kdnet      # no UsbLogDxe: USB left to the KDNET transport
 #    TARGET=RELEASE ./build.sh
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -30,10 +31,12 @@ OUT_DIR=$PWD/Artifacts
 mkdir -p "$OUT_DIR"
 
 UART=0
+USB_LOG=TRUE
 for arg in "$@"; do
     case "${arg}" in
         --uart) UART=1 ;;
-        *) echo "Unknown argument: ${arg} (only --uart is supported)"; exit 1 ;;
+        --kdnet) USB_LOG=FALSE ;;
+        *) echo "Unknown argument: ${arg} (--uart, --kdnet)"; exit 1 ;;
     esac
 done
 
@@ -45,6 +48,8 @@ else
     DSCOPTS=(-D USE_SCREEN_FOR_SERIAL_OUTPUT=1 -D USE_UART_FOR_SERIAL_OUTPUT=0)
     echo "Debug output on the framebuffer (the phone has no UART)"
 fi
+DSCOPTS+=(-D USB_LOG=${USB_LOG})
+[ "${USB_LOG}" = FALSE ] && echo "UsbLogDxe left out: USB belongs to KDNET"
 
 function _patch_edk() {
     # GenFw cannot encode R_ARM_PC13 relocations (a clang-ism that shows up in
@@ -84,6 +89,8 @@ _base_tools
 # GenFv reset vector at FD offset 0.
 make -C BootShim UEFI_BASE=0x41000000 UEFI_SIZE=0x00100000
 
+# edksetup.sh parses "$@" and rejects our own options.
+set --
 source "$PWD/../edk2/edksetup.sh"
 
 # CLANGDWARF only defines DEPS_FLAGS for RISCV64.  Without it no ARM object
