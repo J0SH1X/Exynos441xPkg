@@ -121,8 +121,10 @@ fi
 PAYLOAD="$OUT_DIR/bootpayload.bin"
 cat BootShim/BootShim.bin "$FD" > "$PAYLOAD"
 
-# Downstream Linux booter: copy it next to a zImage on any FAT volume.
+# Apps that live on the SD card: the downstream Linux booter (next to a
+# zImage on any FAT volume) and the touchscreen test.
 cp "$WORKSPACE/Build/Exynos441x/${TARGET:-DEBUG}_CLANGDWARF/ARM/LinuxBoot.efi" "$OUT_DIR/"
+cp "$WORKSPACE/Build/Exynos441x/${TARGET:-DEBUG}_CLANGDWARF/ARM/TouchTest.efi" "$OUT_DIR/"
 
 echo
 echo "Build OK"

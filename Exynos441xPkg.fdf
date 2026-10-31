@@ -157,6 +157,11 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
+  # Touchscreen
+  #
+  INF Exynos441xPkg/Drivers/MxtTouchDxe/MxtTouchDxe.inf
+
+  #
   # Storage: eMMC (MSHCI) + microSD (HSMMC2, card-detect gated) BlockIo,
   # then partition + FAT on top.
   #

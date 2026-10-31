@@ -135,6 +135,11 @@
   Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
+  # Touchscreen (Atmel mXT540E on I2C3).
+  #
+  Exynos441xPkg/Drivers/MxtTouchDxe/MxtTouchDxe.inf
+
+  #
   # Storage: internal eMMC (MSHCI) + microSD (HSMMC2, card-detect gated),
   # then the disk stack (partition + FAT) on top of BlockIo.
   #
@@ -162,6 +167,7 @@
   # Downstream Linux booter (copy LinuxBoot.efi + zImage to any FAT volume).
   #
   Exynos441xPkg/Application/LinuxBootApp/LinuxBootApp.inf
+  Exynos441xPkg/Application/TouchTestApp/TouchTestApp.inf
 
   #
   # UEFI Shell.

@@ -1,0 +1,29 @@
+#
+#  Touchscreen test: draws where EFI_ABSOLUTE_POINTER_PROTOCOL reports a touch.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = TouchTest
+  FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c00e
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+
+  ENTRY_POINT    = TouchTestMain
+
+[Sources.common]
+  TouchTestApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiAbsolutePointerProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
