@@ -131,13 +131,14 @@
   #
   Exynos441xPkg/Drivers/GpioDxe/GpioDxe.inf
   Exynos441xPkg/Drivers/I2CDxe/I2CDxe.inf
+  Exynos441xPkg/Drivers/CpuFreqDxe/CpuFreqDxe.inf
   Exynos441xPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
   Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
-  # Touchscreen (Atmel mXT540E on I2C3).
+  # Touchscreen (Atmel mXT540E, I2C3) and S Pen (Wacom, I2C6).
   #
-  Exynos441xPkg/Drivers/MxtTouchDxe/MxtTouchDxe.inf
+  Exynos441xPkg/Drivers/TouchDxe/TouchDxe.inf
 
   #
   # Storage: internal eMMC (MSHCI) + microSD (HSMMC2, card-detect gated),

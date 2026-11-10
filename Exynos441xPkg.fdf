@@ -147,6 +147,7 @@ APRIORI DXE {
   # I2C driver: polling master for the eight s3c2410-style controllers.
   #
   INF Exynos441xPkg/Drivers/I2CDxe/I2CDxe.inf
+  INF Exynos441xPkg/Drivers/CpuFreqDxe/CpuFreqDxe.inf
 
   #
   # Keypad chain: GpioDxe must dispatch before GenericKeypadDeviceDxe
@@ -157,9 +158,9 @@ APRIORI DXE {
   INF Exynos441xPkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
-  # Touchscreen
+  # Touchscreen + S Pen
   #
-  INF Exynos441xPkg/Drivers/MxtTouchDxe/MxtTouchDxe.inf
+  INF Exynos441xPkg/Drivers/TouchDxe/TouchDxe.inf
 
   #
   # Storage: eMMC (MSHCI) + microSD (HSMMC2, card-detect gated) BlockIo,

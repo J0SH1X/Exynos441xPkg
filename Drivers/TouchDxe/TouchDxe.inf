@@ -1,20 +1,24 @@
 #
-#  Atmel mXT540E touchscreen (GT-N7000) as an EFI_ABSOLUTE_POINTER_PROTOCOL.
+#  GT-N7000 touchscreen (Atmel mXT540E) and S Pen (Wacom G5SP) as one
+#  EFI_ABSOLUTE_POINTER_PROTOCOL.
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
 
 [Defines]
   INF_VERSION    = 0x00010005
-  BASE_NAME      = Exynos441xMxtTouchDxe
+  BASE_NAME      = Exynos441xTouchDxe
   FILE_GUID      = 3c1f7e21-6a4d-4b0c-9c33-2a441220c00d
   MODULE_TYPE    = DXE_DRIVER
   VERSION_STRING = 1.0
 
-  ENTRY_POINT    = MxtTouchDxeInitialize
+  ENTRY_POINT    = TouchDxeInitialize
 
 [Sources.common]
-  MxtTouchDxe.c
+  TouchDxe.c
+  TouchDxe.h
+  MxtTouch.c
+  WacomPen.c
 
 [Packages]
   ArmPkg/ArmPkg.dec

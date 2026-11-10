@@ -233,12 +233,6 @@ PlatformBootManagerBeforeConsole (
   EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
 
   //
-  // Blank the panel so the console output starts on a clean screen instead
-  // of scrolling into whatever DXE printed during dispatch.
-  //
-  PaintScreen (0);
-
-  //
   // Register the consoles here, not in AfterConsole.  BdsEntry() calls
   // EfiBootManagerConnectAllDefaultConsoles() between BeforeConsole and
   // AfterConsole, and that is what reads the ConOut variable and fills in

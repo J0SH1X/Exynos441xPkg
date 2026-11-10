@@ -10,6 +10,7 @@
     usbdbg.py volumes                    FAT volumes (index: device path)
     usbdbg.py push LOCAL [\\PATH] [--vol N]   copy to the phone, verified by read-back
     usbdbg.py pull \\PATH LOCAL [--vol N]     copy from the phone
+    usbdbg.py oslog [--clear]            print (or clear) the OS log ring
 
 Numbers accept 0x prefixes.  Works next to Tools/usblog.py (interface 0).
 Uses libusb-1.0 through ctypes; run as root or add a udev rule for 1209:0001.
@@ -27,6 +28,7 @@ DL_VID, DL_PID = 0x04E8, 0x685D              # Samsung download mode
 EP_OUT, EP_IN, IFACE = 0x02, 0x82, 1
 REQ_MAGIC, RSP_MAGIC = 0x47424455, 0x52424455  # 'UDBG', 'UDBR'
 PING, READ, WRITE32, RESET = 1, 2, 3, 4
+OS_LOG_BASE, OS_LOG_SIZE, OS_LOG_MAGIC = 0x5E900000, 0x80000, 0x474C534F  # ExynosOsLog.h
 VOLUMES, FOPEN, FWRITE, FREAD, FCLOSE = 5, 6, 7, 8, 9
 MAX_READ = 4096
 CHUNK = 4000          # 16 + 4000 is no multiple of 512: every request ends short
@@ -137,6 +139,26 @@ def pull_bytes(d, remote, vol):
     return out
 
 
+def oslog(d, clear):
+    """The OS log ring (ExynosOsLog.h): what Windows-side code logged."""
+    magic, head = struct.unpack("<II", d.read(OS_LOG_BASE, 8))
+    if clear:
+        d.call(WRITE32, OS_LOG_BASE, 0)
+        print("OS log cleared")
+        return
+    if magic != OS_LOG_MAGIC:
+        print("OS log empty (no magic)")
+        return
+    data_size = OS_LOG_SIZE - 16
+    count = min(head, data_size)
+    start = (head - count) % data_size
+    data = bytearray()
+    while len(data) < count:
+        chunk = min(MAX_READ, count - len(data), data_size - (start + len(data)) % data_size)
+        data += d.read(OS_LOG_BASE + 16 + (start + len(data)) % data_size, chunk)
+    sys.stdout.write(data.decode("ascii", "replace"))
+
+
 def hexdump(addr, data, words):
     for off in range(0, len(data), 16):
         chunk = data[off:off + 16]
@@ -199,6 +221,8 @@ def main(argv):
             hexdump(addr, data, words=False)
     elif cmd == "poke":
         d.call(WRITE32, num(args[0]), num(args[1]))
+    elif cmd == "oslog":
+        oslog(d, "--clear" in args)
     elif cmd in ("volumes", "push", "pull"):
         vol = 0
         if "--vol" in args:

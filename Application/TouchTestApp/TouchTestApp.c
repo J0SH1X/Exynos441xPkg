@@ -1,7 +1,8 @@
 /** @file
-  Touch test: paints where EFI_ABSOLUTE_POINTER_PROTOCOL says the finger is
-  (green while touching, a red dot where it lifted) and prints the raw
-  coordinates.  Any key (volume/power/home) exits.
+  Touch test: paints where EFI_ABSOLUTE_POINTER_PROTOCOL says the finger or
+  pen is (green while touching, yellow with the S Pen's side button held, a
+  red dot where it lifted) and prints the raw state, including pen hover.
+  Any key (volume/power/home) exits.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -20,6 +21,7 @@
 STATIC EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mBlack = { 0x00, 0x00, 0x00, 0 };
 STATIC EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mGreen = { 0x00, 0xFF, 0x00, 0 };
 STATIC EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mRed   = { 0x00, 0x00, 0xFF, 0 };
+STATIC EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mYellow = { 0x00, 0xFF, 0xFF, 0 };
 
 STATIC
 VOID
@@ -108,7 +110,7 @@ TouchTestMain (
                   (Pointer->Mode->AbsoluteMaxX + 1));
       Y = (UINTN)(State.CurrentY * Gop->Mode->Info->VerticalResolution /
                   (Pointer->Mode->AbsoluteMaxY + 1));
-      DrawDot (Gop, X, Y, &mGreen);
+      DrawDot (Gop, X, Y, ((State.ActiveButtons & EFI_ABS_AltActive) != 0) ? &mYellow : &mGreen);
       LastX    = X;
       LastY    = Y;
       Touching = TRUE;
@@ -118,8 +120,9 @@ TouchTestMain (
     }
 
     gST->ConOut->SetCursorPosition (gST->ConOut, 0, 1);
-    Print (L"x %4lu  y %4lu  z %3lu  %s   \n", State.CurrentX, State.CurrentY,
-           State.CurrentZ, Touching ? L"down" : L"up  ");
+    Print (L"x %5lu  y %5lu  z %3lu  %s%s   \n", State.CurrentX, State.CurrentY,
+           State.CurrentZ, Touching ? L"down" : L"up  ",
+           ((State.ActiveButtons & EFI_ABS_AltActive) != 0) ? L" side" : L"     ");
   }
 
   gST->ConOut->ClearScreen (gST->ConOut);
